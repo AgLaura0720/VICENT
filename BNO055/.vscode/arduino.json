@@ -1,0 +1,6 @@
+{
+    "sketch": "BNO055\\BNO055.ino",
+    "output": "build",
+    "board": "arduino:avr:uno",
+    "port": "COM9"
+}

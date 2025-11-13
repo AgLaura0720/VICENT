@@ -1,0 +1,177 @@
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image, ImageTk
+
+# ===================================
+# 🔧 CORRECCIÓN DE TEXTO BORROSO (DPI FIX)
+# ===================================
+try:
+    from ctypes import windll
+    windll.shcore.SetProcessDpiAwareness(1)
+except:
+    pass
+
+# =============================
+# CONFIGURACIÓN DE LA VENTANA PRINCIPAL
+# =============================
+ventana = tk.Tk()
+ventana.title("Sistema de Pruebas")
+ventana.geometry("1200x800")
+
+# Cargar la imagen de fondo
+try:
+    fondo_img = Image.open("Fondo.jpg")  # ⚠️ Usa el nombre real del archivo
+    fondo_img = fondo_img.resize((1200, 800), Image.LANCZOS)
+    fondo_tk = ImageTk.PhotoImage(fondo_img)
+
+    # Crear un label que cubra toda la ventana
+    fondo_label = tk.Label(ventana, image=fondo_tk)
+    fondo_label.image = fondo_tk  # mantener referencia
+    fondo_label.place(x=0, y=0, relwidth=1, relheight=1)
+
+    # Colocar el resto de la interfaz encima del fondo
+except Exception as e:
+    print("No se pudo cargar el fondo:", e)
+    ventana.configure(bg="#0f1326")  # fallback a fondo oscuro
+
+
+# =============================
+# ESTILO GENERAL (usando ttk)
+# =============================
+estilo = ttk.Style()
+estilo.theme_use("clam")
+
+# Paleta
+COLOR_BG = "#0f1326"
+COLOR_CARD = "#161b33"
+COLOR_TXT = "#ffffff"
+COLOR_MUTED = "#c8c9d1"
+ACCENT = "#6c8cff"       # azul principal
+ACCENT_HOVER = "#7a99ff"
+ACCENT_FOCUS = "#9ab1ff"
+
+# Labels
+estilo.configure("Titulo.TLabel", background=COLOR_BG, foreground=COLOR_TXT, font=("Segoe UI", 24, "bold"))
+estilo.configure("Texto.TLabel",  background=COLOR_BG, foreground=COLOR_TXT, font=("Segoe UI", 11))
+estilo.configure("Turquesa.TLabel", background=COLOR_BG, foreground="#7FFFD4", font=("Segoe UI", 13, "bold"))
+
+# Botones (único estilo unificado)
+common_btn_opts = dict(font=("Segoe UI", 14, "bold"), padding=(18, 12), borderwidth=0)
+estilo.configure("Unified.TButton", background=ACCENT, foreground="white", **common_btn_opts)
+estilo.map("Unified.TButton",
+           background=[("active", ACCENT_HOVER)],
+           focuscolor=[("focus", ACCENT_FOCUS)],
+           foreground=[("disabled", "#888888")])
+
+# Combobox (para selección de examen)
+estilo.configure("ROM.TCombobox",
+                 fieldbackground=COLOR_CARD,
+                 background=COLOR_CARD,
+                 foreground=COLOR_TXT,
+                 arrowcolor=ACCENT)
+estilo.map("ROM.TCombobox",
+           fieldbackground=[("readonly", COLOR_CARD), ("active", COLOR_CARD)],
+           foreground=[("readonly", COLOR_TXT)],
+           focusfill=[("focus", COLOR_CARD)])
+
+# =============================
+# FUNCIONES DE NAVEGACIÓN
+# =============================
+def mostrar_menu_principal():
+    frame_contenido.pack_forget()
+    frame_menu.pack(pady=20)
+
+def mostrar_pagina(nombre):
+    frame_menu.pack_forget()
+
+    # Limpiar contenido anterior
+    for widget in frame_contenido.winfo_children():
+        widget.destroy()
+
+    # Flecha de volver
+    boton_volver = tk.Label(frame_contenido, text="← Volver", fg="white", bg="#0f1326",
+                            font=("Segoe UI", 12, "bold"), cursor="hand2")
+    boton_volver.pack(anchor="nw", padx=10, pady=10)
+    boton_volver.bind("<Button-1>", lambda e: mostrar_menu_principal())
+
+    # Contenido según página
+    if nombre == "rango":
+        ttk.Label(frame_contenido, text="Prueba: Rango de Movimiento", style="Titulo.TLabel").pack(pady=20)
+
+        ttk.Label(frame_contenido, text="Seleccione el tipo de examen:", style="Turquesa.TLabel").pack(pady=(10, 5))
+        opciones = ["Examen de muñeca", "Examen de codo"]
+        combo_examen = ttk.Combobox(frame_contenido, values=opciones, state="readonly",
+                                    style="ROM.TCombobox", font=("Segoe UI", 13))
+        combo_examen.current(0)
+        combo_examen.pack(pady=10, ipadx=10)
+
+        # Botones de acción
+        frame_botones_rom = tk.Frame(frame_contenido, bg=COLOR_BG)
+        frame_botones_rom.pack(pady=20)
+        ttk.Button(frame_botones_rom, text="Iniciar Prueba", style="Unified.TButton",
+                   command=lambda: print("Seleccionado:", combo_examen.get())).pack(side="left", padx=10)
+        ttk.Button(frame_botones_rom, text="Cancelar", style="Unified.TButton",
+                   command=mostrar_menu_principal).pack(side="left", padx=10)
+
+    elif nombre == "fuerza":
+        ttk.Label(frame_contenido, text="Prueba: Fuerza de Prensión", style="Titulo.TLabel").pack(pady=40)
+
+    frame_contenido.pack(fill="both", expand=True)
+
+# =============================
+# INTERFAZ PRINCIPAL
+# =============================
+
+# --- Encabezado ---
+frame_encabezado = tk.Frame(ventana, bg="#0f1326")
+frame_encabezado.pack(pady=20)
+
+try:
+    imagen = Image.open("logito.png")
+    imagen = imagen.resize((60, 60))
+    img_tk = ImageTk.PhotoImage(imagen)
+    lbl_imagen = tk.Label(frame_encabezado, image=img_tk, bg="#0f1326")
+    lbl_imagen.image = img_tk
+    lbl_imagen.pack(side="left", padx=10)
+except:
+    lbl_imagen = tk.Label(frame_encabezado, width=8, height=4, bg="#2e2e3e")
+    lbl_imagen.pack(side="left", padx=10)
+
+frame_textos = tk.Frame(frame_encabezado, bg="#0f1326")
+frame_textos.pack(side="left")
+
+ttk.Label(frame_textos, text="UpperSense", style="Titulo.TLabel").pack(anchor="w")
+ttk.Label(frame_textos, text="Funcionalidad de la muñeca y el codo.", style="Texto.TLabel").pack(anchor="w", pady=(2, 0))
+
+# --- Separador ---
+ttk.Separator(ventana, orient="horizontal").pack(fill="x", pady=15)
+
+# --- Menú principal ---
+frame_menu = tk.Frame(ventana, bg="#0f1326")
+frame_menu.pack(pady=20)
+
+ttk.Label(frame_menu, text="Opciones de Prueba", style="Turquesa.TLabel").pack(pady=10)
+
+frame_botones = tk.Frame(frame_menu, bg="#0f1326")
+frame_botones.pack(pady=20)
+
+# Todos los botones ahora con el mismo color
+ttk.Button(frame_botones, text="Rango de Movimiento", style="Unified.TButton",
+           command=lambda: mostrar_pagina("rango")).pack(side="left", padx=25)
+
+ttk.Button(frame_botones, text="Fuerza de Prensión", style="Unified.TButton",
+           command=lambda: mostrar_pagina("fuerza")).pack(side="left", padx=25)
+
+# --- Contenido dinámico ---
+frame_contenido = tk.Frame(ventana, bg="#0f1326")
+
+# =============================
+# EJECUTAR APLICACIÓN
+# =============================
+ventana.mainloop()
+
+
+
+
+
+
