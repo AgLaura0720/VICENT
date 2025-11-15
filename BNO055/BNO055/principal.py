@@ -15,7 +15,7 @@ from openpyxl.utils import get_column_letter
 
 # ===================== CONFIG =====================
 
-MAIN_DIR = Path(r"C:\Users\14-bb0002\Desktop\PROYECTO FINAL BIOMEDICA\VICENT\BNO055\PacienteData")
+MAIN_DIR = Path(r"C:\Users\Adrian Jr\Desktop\VICENT\BNO055\PacienteData")
 EXCEL_NAME = "Lecturas.xlsx"
 
 SERIAL_PORT = "COM4"
@@ -31,6 +31,14 @@ COLS = [
     "EMG(PS)_mv",
     "Fuerza de Prensión_Kg",
     "EMG(FP)_mv"
+]
+
+# === NUEVO: lista de ejercicios para resumen de Inicio (igual que código 1) ===
+EJERCICIOS = [
+    ("Flexión/Extensión", "ROM Flexión/Extensión_°"),
+    ("Desviación Ulnar/Radial", "ROM Desviación Ulnar/Radial_°"),
+    ("Pronosupinación", "ROM Pronosupinación_°"),
+    ("Fuerza de Prensión", "Fuerza de Prensión_Kg"),
 ]
 
 EMG_MAP = {
@@ -109,13 +117,108 @@ def abrir_o_crear_xlsx(ruta):
     wb.save(ruta)
     return wb
 
+# === NUEVO: función igual que en código 1 para EMG global ===
+def _emg_global_y_momentos(df: pd.DataFrame):
+    """Máx/Mín global de todos los EMG y momento asociado (ROM/Fuerza).
+
+    Si no hay ningún EMG con datos numéricos, devuelve todo None.
+    """
+    emg_cols = list(EMG_MAP.keys())
+
+    # Aseguramos que sean numéricos (puede haber strings, NaN, etc.)
+    emg_numeric = df[emg_cols].apply(pd.to_numeric, errors="coerce")
+
+    # Nos quedamos solo con las columnas que tengan AL MENOS un valor no NaN
+    valid_cols = [c for c in emg_cols if emg_numeric[c].notna().any()]
+
+    if not valid_cols:
+        # No hay EMG en esta sesión
+        return None, None, None, None
+
+    # --- EMG máximo global ---
+    max_vals = emg_numeric[valid_cols].max()
+    emg_max_col = max_vals.idxmax()
+    emg_max_val = float(max_vals.max())
+    i_max = int(emg_numeric[emg_max_col].idxmax())
+    assoc_col_max = EMG_MAP[emg_max_col]
+    momento_max = f"{assoc_col_max} = {df.at[i_max, assoc_col_max]}"
+
+    # --- EMG mínimo global ---
+    min_vals = emg_numeric[valid_cols].min()
+    emg_min_col = min_vals.idxmin()
+    emg_min_val = float(min_vals.min())
+    i_min = int(emg_numeric[emg_min_col].idxmin())
+    assoc_col_min = EMG_MAP[emg_min_col]
+    momento_min = f"{assoc_col_min} = {df.at[i_min, assoc_col_min]}"
+
+    return emg_max_val, momento_max, emg_min_val, momento_min
+
+# ===================== GESTIÓN DE EXCEL (Página principal adaptada) =====================
+
 def asegurar_inicio_simple(wb):
+    """Crea hoja 'Inicio' con las dos tablas si no existe (igual que en código 1)."""
     if "Inicio" not in wb.sheetnames:
         ws = wb.create_sheet("Inicio", 0)
-        ws["A1"].value = "Dashboard - Resumen"
+        ws["A1"].value = "Dashboard - Resumen (simple)"
         ws["A1"].font = Font(bold=True, size=14)
         ws.append([])
         ws.append(["Fecha", "Ejercicio", "Min", "Max"])
+        ws["G2"].value = "Resumen EMG global (por sesión)"
+        ws["G2"].font = Font(bold=True)
+        ws["G3"].value = "Fecha"
+        ws["H3"].value = "Emg max"
+        ws["I3"].value = "Momento del EMG max"
+        ws["J3"].value = "Emg min"
+        ws["K3"].value = "Momento del EMG min"
+        for c in ("G", "H", "I", "J", "K"):
+            ws[f"{c}3"].font = Font(bold=True)
+
+# === NUEVO: función que actualiza la hoja Inicio (traída del código 1) ===
+def anexar_resumen_inicio(wb, ts, df):
+    """Actualiza la hoja 'Inicio' con min/max por ejercicio y EMG global."""
+    ws = wb["Inicio"]
+
+    # ---------- Bloque A–D (por ejercicio) ----------
+    row = 4
+    while ws.cell(row=row, column=1).value not in (None, ""):
+        row += 1
+
+    for nombre_ej, col in EJERCICIOS:
+        # 👇 Si la columna no existe en este df, saltar
+        if col not in df.columns:
+            continue
+
+        serie = pd.to_numeric(df[col], errors="coerce")
+
+        # 👇 Si no hay datos numéricos (todo NaN), saltar
+        if serie.dropna().empty:
+            continue
+
+        vmin = float(serie.min())
+        vmax = float(serie.max())
+
+        ws.cell(row=row, column=1, value=ts.strftime("%Y-%m-%d"))
+        ws.cell(row=row, column=2, value=nombre_ej)
+        ws.cell(row=row, column=3, value=vmin)
+        ws.cell(row=row, column=4, value=vmax)
+        row += 1
+
+    # ---------- Bloque G–K (resumen EMG global) ----------
+    row_g = 4
+    while ws.cell(row=row_g, column=7).value not in (None, ""):
+        row_g += 1
+
+    emg_max_val, momento_max, emg_min_val, momento_min = _emg_global_y_momentos(df)
+
+    # Si no hubo EMG en esta sesión, no escribimos nada en G–K
+    if emg_max_val is None:
+        return
+
+    ws.cell(row=row_g, column=7, value=ts.strftime("%Y-%m-%d"))
+    ws.cell(row=row_g, column=8, value=emg_max_val)
+    ws.cell(row=row_g, column=9, value=momento_max)
+    ws.cell(row=row_g, column=10, value=emg_min_val)
+    ws.cell(row=row_g, column=11, value=momento_min)
 
 def escribir_sesion(wb, hoja_nombre, df, table_name):
     if hoja_nombre in wb.sheetnames:
@@ -153,11 +256,11 @@ def capturar_rom_desde_arduino(cmd, nombre_col):
     ser = serial.Serial(port=SERIAL_PORT, baudrate=BAUD_RATE, timeout=1)
     time.sleep(2)
 
-    print(f"➡️ Enviando comando '{cmd}'...")
+    print(f"➡ Enviando comando '{cmd}'...")
     ser.write(cmd.encode())
     time.sleep(0.3)
 
-    print("➡️ TARA enviada...")
+    print("➡ TARA enviada...")
     ser.write(b" ")
     time.sleep(0.3)
 
@@ -180,9 +283,12 @@ def capturar_rom_desde_arduino(cmd, nombre_col):
     ser.write(b"e")
     ser.close()
 
-    df = pd.DataFrame({c: [1]*len(valores) for c in COLS})
-    df["timestamp_s"] = timestamps
-    df[nombre_col] = valores
+    # DF solo con tiempo y la columna del ejercicio
+    df = pd.DataFrame({
+        "timestamp_s": timestamps,
+        nombre_col: valores
+    })
+
     return df
 
 # ===================== MAIN =====================
@@ -201,7 +307,7 @@ def main():
 
     asegurar_inicio_simple(wb)
 
-    ts, hoja, table_name = ahora_nombres()
+    ts, hoja , table_name = ahora_nombres()
     lista_dfs = []
 
     for cmd, nombre_col in pf["ejercicios"]:
@@ -209,13 +315,28 @@ def main():
         df_ej = capturar_rom_desde_arduino(cmd, nombre_col)
         lista_dfs.append(df_ej)
 
-    # Unir todas las capturas de la sesión
-    df_final = pd.concat(lista_dfs, ignore_index=True)
+    # Unir todas las capturas sin cortar nada
+    df_final = lista_dfs[0].copy()
 
-    # Escribir sesión en Excel
+    for df_ej, (cmd, nombre_col) in zip(lista_dfs[1:], pf["ejercicios"][1:]):
+        max_len = max(len(df_final), len(df_ej))
+        df_final = df_final.reindex(range(max_len))
+        df_ej    = df_ej.reindex(range(max_len))
+        df_final[nombre_col] = df_ej[nombre_col]
+
+    # --- Asegurar que existan todas las columnas ---
+    for c in COLS:
+        if c not in df_final.columns:
+            df_final[c] = np.nan
+
+    # --- Orden final de columnas ---
+    df_final = df_final[COLS]
+
+    # Escribir sesión
     hoja_final = escribir_sesion(wb, hoja, df_final, table_name)
 
-    # Guardar archivo
+    anexar_resumen_inicio(wb, ts, df_final)
+
     wb.save(ruta_xlsx)
 
     print("\n✅ Sesión guardada correctamente.")

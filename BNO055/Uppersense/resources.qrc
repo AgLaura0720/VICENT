@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/img">
+        <file>loguito.ico</file>
+        <file>Loguito.png</file>
+    </qresource>
+</RCC>

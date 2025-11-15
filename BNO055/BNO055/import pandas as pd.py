@@ -16,11 +16,11 @@ from openpyxl.utils import get_column_letter
 
 # ===================== CONFIG =====================
 
-MAIN_DIR = Path(r"C:\Users\Usuario\Desktop\Uni\Cuarto Semestre\Instrumentación y Sensores\BNO055\PacienteData")
+MAIN_DIR = Path(r"C:\Users\Adrian Jr\Desktop\VICENT\BNO055\BNO055")
 EXCEL_NAME = "Lecturas.xlsx"
 
 # puerto y parámetros del Arduino
-SERIAL_PORT = "COM9"      # 👈 CAMBIA esto si tu Arduino está en otro puerto
+SERIAL_PORT = "COM4"      # 👈 CAMBIA esto si tu Arduino está en otro puerto
 BAUD_RATE = 115200
 DURACION_CAPTURA_S = 10   # tiempo de captura por corrida (segundos)
 
@@ -96,10 +96,10 @@ def generar_df_prueba(n=200) -> pd.DataFrame:
     rom_ps = 30*np.sin(2*np.pi*(t/7)) + ruido(1.2)
     grip   = 15 + 5*np.sin(2*np.pi*(t/5))  + ruido(0.6)
 
-    emg_fe = (0.01*np.abs(rom_fe) + ruido(0.5)).abs()
-    emg_d  = (0.012*np.abs(rom_ur) + ruido(0.4)).abs()
-    emg_ps = (0.009*np.abs(rom_ps) + ruido(0.5)).abs()
-    emg_fp = (0.03*np.abs(grip)    + ruido(0.6)).abs()
+    emg_fe = (0.01*np.abs(rom_fe) + ruido(0.5)).__abs__()
+    emg_d  = (0.012*np.abs(rom_ur) + ruido(0.4)).__abs__()
+    emg_ps = (0.009*np.abs(rom_ps) + ruido(0.5)).__abs__()
+    emg_fp = (0.03*np.abs(grip)    + ruido(0.6)).__abs__()
 
     df = pd.DataFrame({
         "timestamp_s": t.round(3),

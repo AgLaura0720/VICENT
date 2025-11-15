@@ -1,0 +1,23 @@
+# ninja log v6
+46	241	7848925982946874	Uppersense_autogen/timestamp	c6a830c2d5c19157
+913	1048	7848904753637400	Uppersense_autogen/EWIEGA46WW/qrc_resources.cpp	fbefcbd23d7e53f9
+46	241	7848925982946874	Uppersense_autogen/mocs_compilation.cpp	c6a830c2d5c19157
+1057	4212	7848904753844982	CMakeFiles/Uppersense.dir/headerwidget.cpp.obj	79531f140eb84091
+46	241	7848925982946874	C:/Users/Adrian Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	c6a830c2d5c19157
+46	241	7848925982946874	C:/Users/Adrian Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	c6a830c2d5c19157
+913	1048	7848904753637400	C:/Users/Adrian Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/EWIEGA46WW/qrc_resources.cpp	fbefcbd23d7e53f9
+1051	4092	7848904753804237	CMakeFiles/Uppersense.dir/main.cpp.obj	512ccb46d23d9a72
+1048	4243	7848904753774314	CMakeFiles/Uppersense.dir/Uppersense_autogen/mocs_compilation.cpp.obj	a1d66ccab4c2acaa
+1060	4316	7848904753844982	CMakeFiles/Uppersense.dir/Uppersense_autogen/EWIEGA46WW/qrc_resources.cpp.obj	16a245d1d2a69acc
+242	4237	7848925984911618	CMakeFiles/Uppersense.dir/mainwindow.cpp.obj	42f8c4bc59322866
+4238	4846	7848926024863114	Uppersense.exe	88ca030c1d502477
+34	203	7848927357270997	Uppersense_autogen/timestamp	c6a830c2d5c19157
+34	203	7848927357270997	Uppersense_autogen/mocs_compilation.cpp	c6a830c2d5c19157
+34	203	7848927357270997	C:/Users/Adrian Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	c6a830c2d5c19157
+34	203	7848927357270997	C:/Users/Adrian Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	c6a830c2d5c19157
+20	224	7848933422034936	Uppersense_autogen/timestamp	c6a830c2d5c19157
+20	224	7848933422034936	Uppersense_autogen/mocs_compilation.cpp	c6a830c2d5c19157
+20	224	7848933422034936	C:/Users/Adrian Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	c6a830c2d5c19157
+20	224	7848933422034936	C:/Users/Adrian Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	c6a830c2d5c19157
+226	5094	7848933424100366	CMakeFiles/Uppersense.dir/mainwindow.cpp.obj	42f8c4bc59322866
+5094	5693	7848933472779320	Uppersense.exe	88ca030c1d502477
