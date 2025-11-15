@@ -1,0 +1,39 @@
+def _extraer_numero(linea: str):
+    match = re.search(r"[-+]?\d*\.\d+|\d+", linea)
+    return float(match.group()) if match else None
+
+def capturar_rom_desde_arduino(cmd, nombre_col, duracion):
+    """
+    Versión no interactiva que abre puerto, envía comandos, captura 'duracion' segundos
+    y devuelve un pandas.DataFrame con la columna 'nombre_col' poblada.
+    """
+    try:
+        ser = serial.Serial(port=SERIAL_PORT, baudrate=BAUD_RATE, timeout=1)
+    except serial.SerialException as e:
+        raise RuntimeError(f"No se pudo abrir puerto {SERIAL_PORT}: {e}")
+
+    try:
+        time.sleep(1.2)
+        ser.write(str(cmd).encode()); time.sleep(0.2)
+        ser.write(b" "); time.sleep(0.2)  # tara
+        t0 = time.time()
+        timestamps, valores = [], []
+        while (time.time() - t0) < duracion:
+            linea = ser.readline().decode(errors="ignore").strip()
+            val = _extraer_numero(linea)
+            if val is None:
+                continue
+            ts = time.time() - t0
+            timestamps.append(ts)
+            valores.append(val)
+        ser.write(b"e")
+    finally:
+        try:
+            ser.close()
+        except:
+            pass
+
+    df = pd.DataFrame({c: [1]*len(valores) for c in COLS})
+    df["timestamp_s"] = timestamps
+    df[nombre_col] = valores
+    return df
