@@ -8,6 +8,9 @@ class QLabel;
 class QPushButton;
 class QStackedWidget;
 class QTimer;
+class QLineEdit;
+class QSerialPort;
+class QElapsedTimer;
 
 class MainWindow : public QMainWindow
 {
@@ -34,6 +37,13 @@ private slots:
     void toggleFullscreen();
     void exitFullscreen();
 
+    // Página de cédula
+    void handleIdContinue();
+
+    // Serial / captura
+    void onSerialReadyRead();
+    void onAcquisitionTimeout();
+
 private:
     enum ExamType {
         ExamNone,
@@ -44,9 +54,14 @@ private:
 
     void setStatusText(const QString &text);
     QWidget* createCentralCard();
+    QWidget* createIdPage();
     QWidget* createMenuPage();
     QWidget* createExamPage();
     void updateExamUI();  // actualiza textos/botones según ejercicio actual
+
+    void startAcquisitionForCurrentExercise(int durationSeconds);
+    void stopAcquisition(bool fromTimeout);
+    void saveCurrentExerciseToCsv();      // <<< nuevo
 
     // ----- UI general -----
     HeaderWidget   *m_header;
@@ -58,7 +73,7 @@ private:
 
     // ----- Estado del examen -----
     ExamType       m_currentExam;
-    QVector<int>   m_examExercises;      // p.ej. {1,2,4} ó {1,3,4}
+    QVector<int>   m_examExercises;      // p.ej. {1,2} ó {1,3}
     int            m_currentExerciseIdx; // índice sobre m_examExercises
     bool           m_isAcquiring;        // si se está tomando datos
 
@@ -67,4 +82,18 @@ private:
     QLabel        *m_examStatusLabel;     // "Esperando", "Realizando...", etc.
     QPushButton   *m_examStartStopButton; // "Iniciar" / "Detener"
     QPushButton   *m_examNextButton;      // "Siguiente" / "Finalizar"
+
+    // ----- Página de cédula -----
+    QLineEdit     *m_idLineEdit;
+    QString        m_patientId;
+
+    // ----- Comunicación con Arduino -----
+    QSerialPort   *m_serial;        // puerto serie
+    QTimer        *m_acqTimer;      // duración de la toma
+    qint64         m_acqDurationMs;
+    QElapsedTimer *m_elapsed;       // para timestamps relativos
+    QByteArray     m_serialBuffer;  // buffer de líneas parciales
+
+    QVector<double> m_timeSamples;   // timestamps (s)
+    QVector<double> m_valueSamples;  // valores de ángulo
 };

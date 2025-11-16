@@ -9,38 +9,32 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
+# ================== Qt ==================
+# Pedimos Widgets + SerialPort solo una vez, limpio
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets SerialPort)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets SerialPort)
 
 set(PROJECT_SOURCES
-        main.cpp
-        mainwindow.cpp
-        mainwindow.h
-        mainwindow.ui
+    main.cpp
+    mainwindow.cpp
+    mainwindow.h
+    mainwindow.ui
+    headerwidget.h
+    headerwidget.cpp
+    resources.qrc
 )
 
+# ================== Ejecutable ==================
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(Uppersense
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
-        resources.qrc
-        headerwidget.h headerwidget.cpp
-
-
-
     )
-# Define target properties for Android with Qt 6 as:
-#    set_property(TARGET Uppersense APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
-#                 ${CMAKE_CURRENT_SOURCE_DIR}/android)
-# For more information, see https://doc.qt.io/qt-6/qt-add-executable.html#target-creation
 else()
     if(ANDROID)
         add_library(Uppersense SHARED
             ${PROJECT_SOURCES}
         )
-# Define properties for Android with Qt 5 after find_package() calls as:
-#    set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
     else()
         add_executable(Uppersense
             ${PROJECT_SOURCES}
@@ -48,15 +42,17 @@ else()
     endif()
 endif()
 
-target_link_libraries(Uppersense PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
-target_link_libraries(Uppersense PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+# ================== Enlazado ==================
+target_link_libraries(Uppersense PRIVATE
+    Qt${QT_VERSION_MAJOR}::Widgets
+    Qt${QT_VERSION_MAJOR}::SerialPort
+)
 
-# Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
-# If you are developing for iOS or macOS you should consider setting an
-# explicit, fixed bundle identifier manually though.
+# ================== Propiedades de bundle ==================
 if(${QT_VERSION} VERSION_LESS 6.1.0)
   set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.Uppersense)
 endif()
+
 set_target_properties(Uppersense PROPERTIES
     ${BUNDLE_ID_OPTION}
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
@@ -65,6 +61,7 @@ set_target_properties(Uppersense PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
+# ================== Instalación ==================
 include(GNUInstallDirs)
 install(TARGETS Uppersense
     BUNDLE DESTINATION .
@@ -72,6 +69,7 @@ install(TARGETS Uppersense
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
+# ================== Finalizar (Qt6) ==================
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(Uppersense)
 endif()

@@ -16,38 +16,31 @@
 #include <QIcon>
 #include <QPixmap>
 #include <QInputDialog>
-#include <QProcess>
 #include <QDir>
+#include <QLineEdit>
+#include <QFile>
+#include <QTextStream>
 
-// Paleta similar a la de Python
+#include <QSerialPort>
+#include <QSerialPortInfo>
+#include <QElapsedTimer>
+#include <QRegularExpression>
+#include <QDebug>
+
+// Paleta visual
 static const char *CLR_PRIMARY        = "#1565c0";
 static const char *CLR_PRIMARY_HOVER  = "#0d47a1";
-static const char *CLR_PRIMARY_MUTED  = "#90caf9";
 
 static const char *CLR_BG             = "#eaeaea";
 static const char *CLR_SURFACE        = "#f5f7fb";
-static const char *CLR_SURFACE_SHADOW = "#d0d4dc";
 static const char *CLR_DIVIDER        = "#d7dbe3";
 static const char *CLR_FOOTER         = "#eef1f6";
 
 static const char *CLR_TEXT           = "#1f2937";
 static const char *CLR_TEXT_MUTED     = "#374151";
 
-// ---------------- variables de fichero para el bridge Python ----------------
-// no cambiamos el header: guardamos el proceso y buffer a nivel de cpp
-static QProcess *g_pythonProc = nullptr;
-static QByteArray g_pythonBuffer;
-static QString g_patientId_global;
-
-// Helper para enviar comando al script Python
-static void sendToPython(const QString &line) {
-    if (!g_pythonProc) return;
-    if (g_pythonProc->state() == QProcess::NotRunning) return;
-    QByteArray out = (line + "\n").toUtf8();
-    g_pythonProc->write(out);
-    g_pythonProc->waitForBytesWritten(200);
-}
-
+// ---------------------------------------------------------------------------
+//              CONSTRUCTOR
 // ---------------------------------------------------------------------------
 
 MainWindow::MainWindow(QWidget *parent)
@@ -64,12 +57,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_examTitleLabel(nullptr),
     m_examStatusLabel(nullptr),
     m_examStartStopButton(nullptr),
-    m_examNextButton(nullptr)
+    m_examNextButton(nullptr),
+    m_idLineEdit(nullptr),
+    m_serial(nullptr),
+    m_acqTimer(nullptr),
+    m_acqDurationMs(0),
+    m_elapsed(nullptr)
 {
     setWindowTitle(QString::fromUtf8("UpperSense — Panel de Control"));
     resize(1280, 720);
-
-    // Ícono desde recursos
     setWindowIcon(QIcon(":/img/loguito.ico"));
 
     QWidget *central = new QWidget(this);
@@ -91,15 +87,12 @@ MainWindow::MainWindow(QWidget *parent)
     divider->setStyleSheet(QString("background-color:%1;").arg(CLR_DIVIDER));
     rootLayout->addWidget(divider);
 
-    // ===== Zona central (card + sombra) =====
+    // ===== Zona central =====
     QWidget *centerWrapper = new QWidget(this);
     QVBoxLayout *centerLayout = new QVBoxLayout(centerWrapper);
-    centerLayout->setContentsMargins(80, 40, 80, 40);
+    centerLayout->setContentsMargins(40, 20, 40, 20);
     centerLayout->setSpacing(0);
     rootLayout->addWidget(centerWrapper, 1);
-
-    // shadowFrame eliminado intencionalmente (bloque gris detrás del card)
-    centerLayout->setContentsMargins(40, 20, 40, 20);
 
     QWidget *card = createCentralCard();
     centerLayout->addWidget(card, 0, Qt::AlignHCenter);
@@ -112,16 +105,13 @@ MainWindow::MainWindow(QWidget *parent)
 
     QFrame *footer = new QFrame(this);
     footer->setObjectName("footerFrame");
-    footer->setStyleSheet(
-        QString("QFrame#footerFrame {"
-                " background-color:%1;"
-                "}").arg(CLR_FOOTER));
+    footer->setStyleSheet(QString("QFrame#footerFrame { background-color:%1; }").arg(CLR_FOOTER));
     footer->setFixedHeight(40);
 
     QHBoxLayout *footerLayout = new QHBoxLayout(footer);
     footerLayout->setContentsMargins(16, 6, 16, 6);
 
-    m_statusLeft = new QLabel(QString::fromUtf8("Estado: Menú principal"), footer);
+    m_statusLeft = new QLabel(QString::fromUtf8("Estado: Inicio"), footer);
     QFont fstatus("Segoe UI", 10);
     m_statusLeft->setFont(fstatus);
     m_statusLeft->setStyleSheet(QString("color:%1;").arg(CLR_TEXT_MUTED));
@@ -142,134 +132,151 @@ MainWindow::MainWindow(QWidget *parent)
     m_clockTimer->start(1000);
     updateClock();
 
-    // ===== Atajos F11 / Esc =====
-    QShortcut *shortcutFull = new QShortcut(QKeySequence(Qt::Key_F11), this);
-    connect(shortcutFull, &QShortcut::activated, this, &MainWindow::toggleFullscreen);
+    // ===== Atajos F11 / ESC =====
+    connect(new QShortcut(QKeySequence(Qt::Key_F11), this),
+            &QShortcut::activated, this, &MainWindow::toggleFullscreen);
+    connect(new QShortcut(QKeySequence(Qt::Key_Escape), this),
+            &QShortcut::activated, this, &MainWindow::exitFullscreen);
 
-    QShortcut *shortcutEsc = new QShortcut(QKeySequence(Qt::Key_Escape), this);
-    connect(shortcutEsc, &QShortcut::activated, this, &MainWindow::exitFullscreen);
+    // ===== Serial / captura =====
+    m_serial  = new QSerialPort(this);
+    m_acqTimer = new QTimer(this);
+    m_elapsed = new QElapsedTimer();
 
-    // Iniciar el bridge Python (si existe)
-    // Ruta por defecto: ./scripts/arduino_controller.py dentro del directorio de la app
-    QString scriptPath = QCoreApplication::applicationDirPath() + "/principal.py";
-    QString pythonExe = "python"; // si necesitas ruta absoluta, cámbiala aquí
+    connect(m_serial, &QSerialPort::readyRead,
+            this, &MainWindow::onSerialReadyRead);
+    connect(m_acqTimer, &QTimer::timeout,
+            this, &MainWindow::onAcquisitionTimeout);
 
-    // Intentamos arrancar el proceso de Python; si no existe, avisamos pero la app sigue.
-    if (!g_pythonProc) {
-        g_pythonProc = new QProcess(this);
-        g_pythonProc->setProcessChannelMode(QProcess::MergedChannels);
-        connect(g_pythonProc, &QProcess::readyReadStandardOutput, this, [this]() {
-            // lambda que procesa líneas desde stdout del script Python
-            g_pythonBuffer.append(g_pythonProc->readAllStandardOutput());
-            int idx;
-            while ((idx = g_pythonBuffer.indexOf('\n')) != -1) {
-                QByteArray line = g_pythonBuffer.left(idx);
-                g_pythonBuffer.remove(0, idx + 1);
-                QString s = QString::fromUtf8(line).trimmed();
-                qDebug() << "PY_OUT:" << s;
+    // Mostrar página de cédula al inicio
+    if (m_pages)
+        m_pages->setCurrentIndex(0);
 
-                // Manejo de mensajes conocidos
-                if (s.startsWith("STATUS:")) {
-                    QString rest = s.section(':', 1);
-                    if (rest.startsWith("READY")) {
-                        m_statusLeft->setText("Estado: Backend Python listo");
-                    } else if (rest.startsWith("CAPTURE_STARTED")) {
-                        QString col = rest.section(':', 1);
-                        m_examStatusLabel->setText(QString::fromUtf8("Capturando: %1").arg(col));
-                    } else if (rest.startsWith("CAPTURE_END")) {
-                        QString col = rest.section(':', 1);
-                        m_examStatusLabel->setText(QString::fromUtf8("Toma finalizada: %1").arg(col));
-                        // habilitar botón Siguiente
-                        m_isAcquiring = false;
-                        m_examStartStopButton->setText(QString::fromUtf8("Iniciar"));
-                        bool isLast = (m_currentExerciseIdx == m_examExercises.size() - 1);
-                        m_examNextButton->setText(isLast ? QString::fromUtf8("Finalizar") : QString::fromUtf8("Siguiente"));
-                        m_examNextButton->setEnabled(true);
-                    }
-                } else if (s.startsWith("DATA:")) {
-                    // DATA:<colname>,<timestamp_s>,<value>
-                    QString payload = s.mid(QString("DATA:").length());
-                    QStringList parts = payload.split(',');
-                    if (parts.size() >= 3) {
-                        QString col = parts[0];
-                        double ts = parts[1].toDouble();
-                        double val = parts[2].toDouble();
-                        // muestra el último valor recibido
-                        m_examStatusLabel->setText(QString::fromUtf8("%1  —  %2 s  —  %3").arg(col).arg(QString::number(ts,'f',2)).arg(QString::number(val,'f',2)));
-                    }
-                } else if (s.startsWith("SAVED:")) {
-                    QString path = s.section(':',1);
-                    QMessageBox::information(this, "Guardado", QString("Archivo guardado:\n%1").arg(path));
-                } else if (s.startsWith("ERROR:")) {
-                    qDebug() << "PY ERROR:" << s;
-                    // opcional: mostrar al usuario
-                } else if (s.startsWith("HWMSG:")) {
-                    // mensajes del firmware Arduino reenviados por el Python
-                    QString hw = s.mid(QString("HWMSG:").length());
-                    qDebug() << "HWMSG:" << hw;
-                } else {
-                    // otros mensajes, logs, etc.
-                    qDebug() << "PY MSG:" << s;
-                }
-            }
-        });
-        connect(g_pythonProc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                this, [](int exitCode, QProcess::ExitStatus) {
-                    qDebug() << "Python bridge finalizado con código" << exitCode;
-                });
-
-        g_pythonProc->start(pythonExe, QStringList() << scriptPath);
-        if (!g_pythonProc->waitForStarted(1500)) {
-            qWarning() << "No se pudo iniciar el script Python en:" << scriptPath;
-            // no abortamos la app; el usuario puede usar QSerialPort directo o añadir el script
-            QMessageBox::warning(this, "Aviso", "No se pudo iniciar el script Python (arduino_controller.py).\nRevisa que exista en la carpeta ./scripts y que 'python' esté en PATH.");
-            // limpiamos el proceso para que no quede en estado inesperado
-            g_pythonProc->kill();
-            delete g_pythonProc;
-            g_pythonProc = nullptr;
-        } else {
-            qDebug() << "Python bridge iniciado.";
-        }
-    }
-
-    // Arranca mostrando el menú
+    setStatusText(QString::fromUtf8("Ingrese la cédula del paciente"));
     showMaximized();
-    showMenuPage();
 }
 
-
-// ================= CARD CENTRAL =================
+// ---------------------------------------------------------------------------
+//                  CARD CENTRAL + PÁGINAS
+// ---------------------------------------------------------------------------
 
 QWidget* MainWindow::createCentralCard()
 {
     QFrame *card = new QFrame(this);
     card->setObjectName("cardFrame");
-    card->setStyleSheet(
-        QString("QFrame#cardFrame {"
-                " background-color:%1;"
-                " border-radius:20px;"
-                "}").arg(CLR_SURFACE));
+    card->setStyleSheet(QString(
+                            "QFrame#cardFrame {"
+                            " background-color:%1;"
+                            " border-radius:20px;"
+                            "}").arg(CLR_SURFACE));
 
     QVBoxLayout *cardLayout = new QVBoxLayout(card);
     cardLayout->setContentsMargins(50, 40, 50, 40);
     cardLayout->setSpacing(20);
 
-    // Subtítulo fijo
-    QLabel *subtitle = new QLabel(QString::fromUtf8("Opciones de prueba"), card);
-    QFont fsub("Segoe UI", 16, QFont::Bold);
-    subtitle->setFont(fsub);
+    QLabel *subtitle = new QLabel(QString::fromUtf8("Pruebas Funcionales"), card);
+    subtitle->setFont(QFont("Segoe UI", 16, QFont::Bold));
     subtitle->setStyleSheet(QString("color:%1;").arg(CLR_TEXT));
     subtitle->setAlignment(Qt::AlignHCenter);
     cardLayout->addWidget(subtitle);
 
-    // Páginas (menú / examen)
     m_pages = new QStackedWidget(card);
-    m_pages->addWidget(createMenuPage());  // índice 0
-    m_pages->addWidget(createExamPage());  // índice 1
+    m_pages->addWidget(createIdPage());    // 0
+    m_pages->addWidget(createMenuPage());  // 1
+    m_pages->addWidget(createExamPage());  // 2
+
     cardLayout->addWidget(m_pages);
 
     return card;
 }
+
+// ------------------ Página de cédula ------------------
+
+QWidget* MainWindow::createIdPage()
+{
+    QWidget *page = new QWidget(this);
+    QVBoxLayout *v = new QVBoxLayout(page);
+    v->setAlignment(Qt::AlignCenter);
+    v->setSpacing(16);
+
+    QLabel *title = new QLabel(QString::fromUtf8("Identificación del paciente"), page);
+    title->setFont(QFont("Segoe UI", 16, QFont::Bold));
+    title->setStyleSheet(QString("color:%1;").arg(CLR_TEXT));
+    v->addWidget(title);
+
+    QLabel *subtitle = new QLabel(QString::fromUtf8("Ingrese la cédula (solo números)"), page);
+    subtitle->setFont(QFont("Segoe UI", 11));
+    subtitle->setStyleSheet(QString("color:%1;").arg(CLR_TEXT_MUTED));
+    v->addWidget(subtitle);
+
+    m_idLineEdit = new QLineEdit(page);
+    m_idLineEdit->setMaxLength(12);
+    m_idLineEdit->setPlaceholderText(QString::fromUtf8("Cédula del paciente"));
+    m_idLineEdit->setFixedWidth(260);
+    m_idLineEdit->setAlignment(Qt::AlignCenter);
+    m_idLineEdit->setStyleSheet(
+        "QLineEdit {"
+        " background:white;"
+        " border-radius:10px;"
+        " padding:8px;"
+        " font-size:14px;"
+        "}"
+        );
+    v->addWidget(m_idLineEdit, 0, Qt::AlignHCenter);
+
+    QPushButton *btnContinue = new QPushButton(QString::fromUtf8("Continuar"), page);
+    btnContinue->setStyleSheet(
+        QString(
+            "QPushButton {"
+            " background-color:%1;"
+            " color:white;"
+            " border:none;"
+            " border-radius:16px;"
+            " padding:8px 26px;"
+            " font-size:14px;"
+            " font-weight:bold;"
+            "}"
+            "QPushButton:hover {"
+            " background-color:%2;"
+            "}"
+            ).arg(CLR_PRIMARY, CLR_PRIMARY_HOVER)
+        );
+    v->addWidget(btnContinue, 0, Qt::AlignHCenter);
+
+    connect(btnContinue, &QPushButton::clicked,
+            this, &MainWindow::handleIdContinue);
+
+    return page;
+}
+
+void MainWindow::handleIdContinue()
+{
+    QString ced = m_idLineEdit->text().trimmed();
+    ced.remove('.');
+    ced.remove('-');
+    ced.remove(' ');
+
+    if (ced.length() < 7 || ced.length() > 12) {
+        QMessageBox::warning(this, tr("Cédula no válida"),
+                             tr("La cédula debe tener entre 7 y 12 dígitos."));
+        return;
+    }
+
+    for (QChar c : ced) {
+        if (!c.isDigit()) {
+            QMessageBox::warning(this, tr("Cédula no válida"),
+                                 tr("La cédula debe contener solo números."));
+            return;
+        }
+    }
+
+    m_patientId = ced;
+    setStatusText(QString::fromUtf8("Paciente: ") + m_patientId);
+
+    m_pages->setCurrentIndex(1); // menú de exámenes
+}
+
+// ------------------ Página de menú ------------------
 
 QWidget* MainWindow::createMenuPage()
 {
@@ -282,24 +289,25 @@ QWidget* MainWindow::createMenuPage()
     rowLayout->setSpacing(30);
     rowLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto makeButton = [&](const QString &text) -> QPushButton* {
+    auto makeButton = [&](const QString &text) {
         QPushButton *b = new QPushButton(text, btnRow);
-        QString style = QString(
-                            "QPushButton {"
-                            " background-color:%1;"
-                            " color:white;"
-                            " border:none;"
-                            " border-radius:18px;"
-                            " padding:14px 32px;"
-                            " font-family:'Segoe UI';"
-                            " font-size:18px;"
-                            " font-weight:bold;"
-                            "}"
-                            "QPushButton:hover {"
-                            " background-color:%2;"
-                            "}"
-                            ).arg(CLR_PRIMARY, CLR_PRIMARY_HOVER);
-        b->setStyleSheet(style);
+        b->setStyleSheet(
+            QString(
+                "QPushButton {"
+                " background-color:%1;"
+                " color:white;"
+                " border:none;"
+                " border-radius:18px;"
+                " padding:14px 32px;"
+                " font-family:'Segoe UI';"
+                " font-size:18px;"
+                " font-weight:bold;"
+                "}"
+                "QPushButton:hover {"
+                " background-color:%2;"
+                "}"
+                ).arg(CLR_PRIMARY, CLR_PRIMARY_HOVER)
+            );
         return b;
     };
 
@@ -313,12 +321,52 @@ QWidget* MainWindow::createMenuPage()
 
     v->addWidget(btnRow, 0, Qt::AlignCenter);
 
+    // Botón Salir debajo
+    QWidget *bottomBar = new QWidget(page);
+    QHBoxLayout *bottomLayout = new QHBoxLayout(bottomBar);
+    bottomLayout->setContentsMargins(0, 20, 0, 0);
+
+    QPushButton *btnExit = new QPushButton(QString::fromUtf8("Salir"), bottomBar);
+    QString exitBtnStyle = QString(
+        "QPushButton {"
+        " background-color:#b91c1c;"
+        " color:white;"
+        " border:none;"
+        " border-radius:14px;"
+        " padding:6px 24px;"
+        " font-family:'Segoe UI';"
+        " font-size:13px;"
+        " font-weight:bold;"
+        "}"
+        "QPushButton:hover {"
+        " background-color:#991b1b;"
+        "}"
+        );
+    btnExit->setStyleSheet(exitBtnStyle);
+
+    bottomLayout->addWidget(btnExit, 0, Qt::AlignLeft);
+    bottomLayout->addStretch();
+
+    v->addWidget(bottomBar);
+
     connect(btnWrist, &QPushButton::clicked, this, &MainWindow::startWristExam);
     connect(btnElbow, &QPushButton::clicked, this, &MainWindow::startElbowExam);
     connect(btnFull,  &QPushButton::clicked, this, &MainWindow::startFullExam);
 
+    connect(btnExit, &QPushButton::clicked, this, [this]() {
+        m_currentExam = ExamNone;
+        m_examExercises.clear();
+        m_currentExerciseIdx = -1;
+        m_isAcquiring = false;
+        if (m_pages)
+            m_pages->setCurrentIndex(0);
+        setStatusText(QString::fromUtf8("Ingrese la cédula del paciente"));
+    });
+
     return page;
 }
+
+// ------------------ Página de examen ------------------
 
 QWidget* MainWindow::createExamPage()
 {
@@ -326,25 +374,20 @@ QWidget* MainWindow::createExamPage()
     QVBoxLayout *v = new QVBoxLayout(page);
     v->setSpacing(16);
 
-    // Título del examen + ejercicio
-    m_examTitleLabel = new QLabel(QString::fromUtf8("Examen — Ejercicio"), page);
-    QFont ftitle("Segoe UI", 16, QFont::Bold);
-    m_examTitleLabel->setFont(ftitle);
+    m_examTitleLabel = new QLabel("Examen — Ejercicio", page);
+    m_examTitleLabel->setFont(QFont("Segoe UI", 16, QFont::Bold));
     m_examTitleLabel->setStyleSheet(QString("color:%1;").arg(CLR_TEXT));
     m_examTitleLabel->setAlignment(Qt::AlignHCenter);
     v->addWidget(m_examTitleLabel);
 
-    // Texto de estado centrado
-    m_examStatusLabel = new QLabel(QString::fromUtf8("Esperando"), page);
-    QFont fstatus("Segoe UI", 18, QFont::Bold);
-    m_examStatusLabel->setFont(fstatus);
+    m_examStatusLabel = new QLabel("Esperando", page);
+    m_examStatusLabel->setFont(QFont("Segoe UI", 18, QFont::Bold));
     m_examStatusLabel->setStyleSheet(QString("color:%1;").arg(CLR_TEXT));
     m_examStatusLabel->setAlignment(Qt::AlignCenter);
     m_examStatusLabel->setMinimumHeight(80);
     v->addWidget(m_examStatusLabel, 1);
 
-    // Botón Iniciar/Detener centrado
-    m_examStartStopButton = new QPushButton(QString::fromUtf8("Iniciar"), page);
+    m_examStartStopButton = new QPushButton("Iniciar", page);
     QString mainBtnStyle = QString(
                                "QPushButton {"
                                " background-color:%1;"
@@ -366,12 +409,11 @@ QWidget* MainWindow::createExamPage()
     connect(m_examStartStopButton, &QPushButton::clicked,
             this, &MainWindow::handleExamStartStop);
 
-    // Barra inferior con botón Siguiente/Finalizar
     QWidget *bottomBar = new QWidget(page);
     QHBoxLayout *bottomLayout = new QHBoxLayout(bottomBar);
     bottomLayout->setContentsMargins(0, 20, 0, 0);
 
-    m_examNextButton = new QPushButton(QString::fromUtf8("Siguiente"), bottomBar);
+    m_examNextButton = new QPushButton("Siguiente", bottomBar);
     QString nextBtnStyle = QString(
                                "QPushButton {"
                                " background-color:%1;"
@@ -393,8 +435,8 @@ QWidget* MainWindow::createExamPage()
     m_examNextButton->setStyleSheet(nextBtnStyle);
     m_examNextButton->setEnabled(false);
 
-    bottomLayout->addWidget(m_examNextButton, 0, Qt::AlignLeft);
     bottomLayout->addStretch();
+    bottomLayout->addWidget(m_examNextButton, 0, Qt::AlignRight);
 
     v->addWidget(bottomBar);
 
@@ -404,18 +446,20 @@ QWidget* MainWindow::createExamPage()
     return page;
 }
 
-
-// ================= LÓGICA DE EXÁMENES =================
+// ---------------------------------------------------------------------------
+//                      LÓGICA DE EXÁMENES
+// ---------------------------------------------------------------------------
 
 void MainWindow::setStatusText(const QString &text)
 {
-    m_statusLeft->setText(QString::fromUtf8("Estado: ") + text);
+    if (m_statusLeft)
+        m_statusLeft->setText(QString::fromUtf8("Estado: ") + text);
 }
 
 void MainWindow::showMenuPage()
 {
     if (m_pages)
-        m_pages->setCurrentIndex(0);
+        m_pages->setCurrentIndex(1);
 
     m_currentExam = ExamNone;
     m_examExercises.clear();
@@ -428,13 +472,13 @@ void MainWindow::showMenuPage()
 void MainWindow::startWristExam()
 {
     m_currentExam = ExamWrist;
-    m_examExercises = QVector<int>{1, 3, 4};
+    m_examExercises = {1, 2};      // sin fuerza
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
 
     updateExamUI();
     if (m_pages)
-        m_pages->setCurrentIndex(1);
+        m_pages->setCurrentIndex(2);
 
     setStatusText(QString::fromUtf8("Examen de muñeca"));
 }
@@ -442,13 +486,13 @@ void MainWindow::startWristExam()
 void MainWindow::startElbowExam()
 {
     m_currentExam = ExamElbow;
-    m_examExercises = QVector<int>{1, 2, 4};
+    m_examExercises = {1, 3};
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
 
     updateExamUI();
     if (m_pages)
-        m_pages->setCurrentIndex(1);
+        m_pages->setCurrentIndex(2);
 
     setStatusText(QString::fromUtf8("Examen de codo"));
 }
@@ -456,13 +500,13 @@ void MainWindow::startElbowExam()
 void MainWindow::startFullExam()
 {
     m_currentExam = ExamFull;
-    m_examExercises = QVector<int>{1, 2, 3, 4};
+    m_examExercises = {1, 2, 3};
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
 
     updateExamUI();
     if (m_pages)
-        m_pages->setCurrentIndex(1);
+        m_pages->setCurrentIndex(2);
 
     setStatusText(QString::fromUtf8("Examen completo"));
 }
@@ -500,69 +544,25 @@ void MainWindow::updateExamUI()
     m_isAcquiring = false;
 }
 
+// Iniciar / Detener
 void MainWindow::handleExamStartStop()
 {
     if (m_currentExam == ExamNone || m_examExercises.isEmpty())
         return;
 
-    int exNum = 0;
-    if (m_currentExerciseIdx >= 0 && m_currentExerciseIdx < m_examExercises.size())
-        exNum = m_examExercises[m_currentExerciseIdx];
-
-    // Mapeo simple de número de ejercicio a nombre de columna (coincide con tu script Python)
-    auto colNameForEx = [](int ex)->QString {
-        switch (ex) {
-        case 1: return QString::fromUtf8("ROM Flexión/Extensión_°");
-        case 2: return QString::fromUtf8("ROM Desviación Ulnar/Radial_°");
-        case 3: return QString::fromUtf8("ROM Pronosupinación_°");
-        case 4: return QString::fromUtf8("Fuerza de Prensión_Kg");
-        default: return QString::fromUtf8("Valor");
-        }
-    };
-
     if (!m_isAcquiring) {
-        // Pedimos cédula si no está definida
-        if (g_patientId_global.isEmpty()) {
-            bool ok;
-            QString ced = QInputDialog::getText(this, tr("Paciente"),
-                                                tr("Cédula (solo números):"), QLineEdit::Normal,
-                                                QString(), &ok);
-            if (!ok || ced.isEmpty()) {
-                QMessageBox::warning(this, tr("Error"), tr("Cédula no válida. Cancelando."));
-                return;
-            }
-            // enviar PATIENT al backend Python
-            g_patientId_global = ced;
-            sendToPython(QString("PATIENT:%1").arg(g_patientId_global));
-        }
+        bool ok = false;
+        int dur = QInputDialog::getInt(this,
+                                       tr("Duración del ejercicio"),
+                                       tr("Duración en segundos:"),
+                                       5, 1, 600, 1, &ok);
+        if (!ok)
+            return;
 
-        // Pedimos duración
-        bool okDur;
-        int dur = QInputDialog::getInt(this, tr("Duración"),
-                                       tr("Duración en segundos:"), 5, 1, 3600, 1, &okDur);
-        if (!okDur) return;
-
-        // Preparar y enviar comando START al Python bridge
-        QString cmd = QString::number(exNum);
-        QString colname = colNameForEx(exNum);
-        QString startLine = QString("START:%1:%2:%3").arg(cmd).arg(colname).arg(dur);
-        sendToPython(startLine);
-
-        // Actualizar UI
-        m_isAcquiring = true;
-        m_examStatusLabel->setText(QString::fromUtf8("Realizando toma de datos"));
-        m_examStartStopButton->setText(QString::fromUtf8("Detener"));
-        m_examNextButton->setEnabled(false);
-    } else {
-        // Detener: enviar 'e' al backend Python (que reenviará al Arduino)
-        sendToPython("e");
-        // Ajustamos UI; el Python enviará STATUS:CAPTURE_END cuando termine realmente
-        m_isAcquiring = false;
-        m_examStatusLabel->setText(QString::fromUtf8("Toma de datos detenida"));
-        m_examStartStopButton->setText(QString::fromUtf8("Iniciar"));
-        bool isLast = (m_currentExerciseIdx == m_examExercises.size() - 1);
-        m_examNextButton->setText(isLast ? QString::fromUtf8("Finalizar") : QString::fromUtf8("Siguiente"));
-        m_examNextButton->setEnabled(true);
+        startAcquisitionForCurrentExercise(dur);
+    }
+    else {
+        stopAcquisition(false);
     }
 }
 
@@ -573,28 +573,259 @@ void MainWindow::handleExamNext()
 
     bool isLast = (m_currentExerciseIdx == m_examExercises.size() - 1);
     if (isLast) {
-        // Pedimos al backend que guarde la sesión acumulada en Excel
-        sendToPython("SAVE");
-        // Limpiamos paciente (opcional)
-        g_patientId_global.clear();
-        // Termina el examen, volvemos al menú principal
+        // Fin de examen: volver al menú
         showMenuPage();
         return;
     }
 
-    // Pasar al siguiente ejercicio
     ++m_currentExerciseIdx;
     updateExamUI();
 }
 
+// ---------------------------------------------------------------------------
+//                  SERIAL: INICIO / FIN / LECTURA
+// ---------------------------------------------------------------------------
 
-// ================= RELOJ Y PANTALLA COMPLETA =================
+void MainWindow::startAcquisitionForCurrentExercise(int durationSeconds)
+{
+    if (m_currentExerciseIdx < 0 || m_currentExerciseIdx >= m_examExercises.size())
+        return;
+
+    int exNum = m_examExercises[m_currentExerciseIdx];
+
+    char cmd = 0;
+    switch (exNum) {
+    case 1: cmd = '1'; break; // Flex/Ext
+    case 2: cmd = '2'; break; // Ulnar/Radial
+    case 3: cmd = '3'; break; // Prono/Sup
+    default:
+        QMessageBox::warning(this, tr("Ejercicio no soportado"),
+                             tr("El ejercicio %1 no está soportado.").arg(exNum));
+        return;
+    }
+
+    if (m_serial->isOpen())
+        m_serial->close();
+
+    m_serial->setPortName("COM4");       // ajusta si usas otro puerto
+    m_serial->setBaudRate(115200);
+
+    if (!m_serial->open(QIODevice::ReadWrite)) {
+        QMessageBox::warning(this, tr("Error de puerto serie"),
+                             tr("No se pudo abrir el puerto COM4.\n%1")
+                                 .arg(m_serial->errorString()));
+        return;
+    }
+
+    m_serialBuffer.clear();
+    m_timeSamples.clear();
+    m_valueSamples.clear();
+
+    m_elapsed->restart();
+    m_acqDurationMs = durationSeconds * 1000;
+    m_acqTimer->start(m_acqDurationMs);
+
+    QByteArray out;
+    out.append(cmd);
+    m_serial->write(out);
+    m_serial->write(" ");  // fijar cero
+    m_serial->flush();
+
+    m_isAcquiring = true;
+    m_examStatusLabel->setText(QString::fromUtf8("Tomando datos…"));
+    m_examStartStopButton->setText(QString::fromUtf8("Detener"));
+    m_examNextButton->setEnabled(false);
+
+    qDebug() << "Inicio adquisición ejercicio" << exNum << "duración" << durationSeconds << "s";
+}
+
+void MainWindow::stopAcquisition(bool fromTimeout)
+{
+    if (!m_isAcquiring)
+        return;
+
+    m_acqTimer->stop();
+
+    if (m_serial->isOpen()) {
+        m_serial->write("e");
+        m_serial->flush();
+        m_serial->close();
+    }
+
+    m_isAcquiring = false;
+
+    if (fromTimeout)
+        m_examStatusLabel->setText(QString::fromUtf8("Tiempo cumplido"));
+    else
+        m_examStatusLabel->setText(QString::fromUtf8("Toma detenida"));
+
+    m_examStartStopButton->setText(QString::fromUtf8("Iniciar"));
+
+    bool last = (m_currentExerciseIdx == m_examExercises.size() - 1);
+    m_examNextButton->setText(last ? QString::fromUtf8("Finalizar")
+                                   : QString::fromUtf8("Siguiente"));
+    m_examNextButton->setEnabled(true);
+
+    qDebug() << "Fin adquisición. Muestras:" << m_timeSamples.size();
+
+    // Guardar el ejercicio actual a CSV
+    saveCurrentExerciseToCsv();
+}
+
+void MainWindow::onSerialReadyRead()
+{
+    m_serialBuffer.append(m_serial->readAll());
+
+    int idx;
+    while ((idx = m_serialBuffer.indexOf('\n')) != -1) {
+        QByteArray lineBA = m_serialBuffer.left(idx);
+        m_serialBuffer.remove(0, idx + 1);
+
+        QString line = QString::fromLatin1(lineBA).trimmed();
+        if (line.isEmpty())
+            continue;
+
+        static QRegularExpression re(R"([-+]?\d*\.?\d+)");
+        QRegularExpressionMatch m = re.match(line);
+        if (!m.hasMatch())
+            continue;
+
+        double val = m.captured(0).toDouble();
+        double t   = m_elapsed->elapsed() / 1000.0;
+
+        m_timeSamples.append(t);
+        m_valueSamples.append(val);
+
+        m_examStatusLabel->setText(
+            QString::fromUtf8("t = %1 s   ·   ángulo = %2°")
+                .arg(QString::number(t, 'f', 2))
+                .arg(QString::number(val, 'f', 2))
+            );
+
+        qDebug() << "LINE:" << line << "->" << val;
+    }
+}
+
+void MainWindow::onAcquisitionTimeout()
+{
+    stopAcquisition(true);
+}
+
+// ---------------------------------------------------------------------------
+//                  GUARDADO A CSV POR EJERCICIO
+// ---------------------------------------------------------------------------
+
+void MainWindow::saveCurrentExerciseToCsv()
+{
+    // 1) Validar que tengamos datos
+    if (m_timeSamples.isEmpty() || m_valueSamples.isEmpty())
+        return;
+    if (m_timeSamples.size() != m_valueSamples.size())
+        return;
+
+    // 2) Nombre del examen (para el archivo)
+    QString examName;
+    switch (m_currentExam) {
+    case ExamWrist: examName = QString::fromUtf8("Muñeca"); break;
+    case ExamElbow: examName = QString::fromUtf8("Codo"); break;
+    case ExamFull:  examName = QString::fromUtf8("Codo_y_Muñeca"); break;
+    default:        examName = QString::fromUtf8("Examen"); break;
+    }
+
+    // 3) Número de ejercicio actual
+    int exNum = 0;
+    if (m_currentExerciseIdx >= 0 && m_currentExerciseIdx < m_examExercises.size())
+        exNum = m_examExercises[m_currentExerciseIdx];
+
+    // 4) Nombre de la columna ROM (igual que en el Python)
+    QString colName;
+    switch (exNum) {
+    case 1:
+        colName = QString::fromUtf8("ROM Flexión/Extensión_°");
+        break;
+    case 2:
+        colName = QString::fromUtf8("ROM Desviación Ulnar/Radial_°");
+        break;
+    case 3:
+        colName = QString::fromUtf8("ROM Pronosupinación_°");
+        break;
+    default:
+        colName = QString::fromUtf8("Ángulo_°");
+        break;
+    }
+
+    // 5) Carpeta base: similar al Python -> PacienteData/<cedula>/
+    QString basePath = QCoreApplication::applicationDirPath()
+                       + "/PacienteData/"
+                       + (m_patientId.isEmpty() ? "sin_id" : m_patientId);
+    QDir baseDir(basePath);
+    if (!baseDir.exists()) {
+        if (!baseDir.mkpath(".")) {
+            qWarning() << "No se pudo crear directorio" << basePath;
+            QMessageBox::warning(this,
+                                 tr("Error al guardar"),
+                                 tr("No se pudo crear la carpeta para el paciente:\n%1")
+                                     .arg(basePath));
+            return;
+        }
+    }
+
+    // 6) Nombre del archivo: fecha_hora + tipo de examen + EjX (una sesión por archivo)
+    QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
+    QString fileName = QString("%1_%2_Ej%3.csv")
+                           .arg(ts,
+                                examName)
+                           .arg(exNum);
+    QString filePath = baseDir.filePath(fileName);
+
+    // 7) Escribir CSV con columnas: timestamp_s + columna ROM correspondiente
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "No se pudo abrir archivo CSV para escribir:" << filePath
+                   << file.errorString();
+        QMessageBox::warning(this,
+                             tr("Error al guardar"),
+                             tr("No se pudo crear el archivo:\n%1\n\n%2")
+                                 .arg(filePath,
+                                      file.errorString()));
+        return;
+    }
+
+    QTextStream out(&file);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    out.setEncoding(QStringConverter::Utf8);
+#endif
+
+    // Cabecera igual que el DataFrame de Python: "timestamp_s", "<ROM ...>"
+    out << "timestamp_s," << colName << "\n";
+
+    for (int i = 0; i < m_timeSamples.size(); ++i) {
+        out << QString::number(m_timeSamples[i], 'f', 4) << ","
+            << QString::number(m_valueSamples[i], 'f', 4) << "\n";
+    }
+
+    file.close();
+
+    // 8) Feedback al usuario: barra de estado + popup
+    qDebug() << "CSV guardado en:" << filePath;
+    setStatusText(QString::fromUtf8("Datos guardados en: ") + filePath);
+
+    QMessageBox::information(this,
+                             tr("Datos guardados"),
+                             tr("Los datos del ejercicio se guardaron en:\n%1")
+                                 .arg(filePath));
+}
+
+
+// ---------------------------------------------------------------------------
+//                 RELOJ Y PANTALLA COMPLETA
+// ---------------------------------------------------------------------------
 
 void MainWindow::updateClock()
 {
     QString hora = QDateTime::currentDateTime().toString("HH:mm:ss");
     m_statusRight->setText(
-        hora + QString::fromUtf8("   ·   F11: Pantalla completa   |   Esc: salir"));
+        hora + QString::fromUtf8("   ·   F11: Pantalla completa   |   Esc: Salir"));
 }
 
 void MainWindow::toggleFullscreen()
