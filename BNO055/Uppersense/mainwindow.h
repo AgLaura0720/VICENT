@@ -2,6 +2,7 @@
 
 #include <QMainWindow>
 #include <QVector>
+#include <QString>
 
 class HeaderWidget;
 class QLabel;
@@ -61,7 +62,10 @@ private:
 
     void startAcquisitionForCurrentExercise(int durationSeconds);
     void stopAcquisition(bool fromTimeout);
-    void saveCurrentExerciseToCsv();      // <<< nuevo
+
+    // Guardado
+    QString saveCurrentExerciseToCsv();           // guarda UN ejercicio -> CSV, devuelve ruta
+    void runExcelBuilderForCurrentSession();      // llama al script Python para hacer Lecturas.xlsx
 
     // ----- UI general -----
     HeaderWidget   *m_header;
@@ -96,4 +100,7 @@ private:
 
     QVector<double> m_timeSamples;   // timestamps (s)
     QVector<double> m_valueSamples;  // valores de ángulo
+
+    // CSV generados en ESTA sesión (para construir el Excel al final)
+    QVector<QString> m_sessionCsvFiles;
 };

@@ -20,11 +20,13 @@
 #include <QLineEdit>
 #include <QFile>
 #include <QTextStream>
+#include <QProcess>
 
 #include <QSerialPort>
 #include <QSerialPortInfo>
 #include <QElapsedTimer>
 #include <QRegularExpression>
+#include <QFileInfo>
 #include <QDebug>
 
 // Paleta visual
@@ -59,6 +61,7 @@ MainWindow::MainWindow(QWidget *parent)
     m_examStartStopButton(nullptr),
     m_examNextButton(nullptr),
     m_idLineEdit(nullptr),
+    m_patientId(),
     m_serial(nullptr),
     m_acqTimer(nullptr),
     m_acqDurationMs(0),
@@ -139,9 +142,9 @@ MainWindow::MainWindow(QWidget *parent)
             &QShortcut::activated, this, &MainWindow::exitFullscreen);
 
     // ===== Serial / captura =====
-    m_serial  = new QSerialPort(this);
+    m_serial   = new QSerialPort(this);
     m_acqTimer = new QTimer(this);
-    m_elapsed = new QElapsedTimer();
+    m_elapsed  = new QElapsedTimer();
 
     connect(m_serial, &QSerialPort::readyRead,
             this, &MainWindow::onSerialReadyRead);
@@ -273,6 +276,7 @@ void MainWindow::handleIdContinue()
     m_patientId = ced;
     setStatusText(QString::fromUtf8("Paciente: ") + m_patientId);
 
+    m_sessionCsvFiles.clear();
     m_pages->setCurrentIndex(1); // menú de exámenes
 }
 
@@ -358,6 +362,7 @@ QWidget* MainWindow::createMenuPage()
         m_examExercises.clear();
         m_currentExerciseIdx = -1;
         m_isAcquiring = false;
+        m_sessionCsvFiles.clear();
         if (m_pages)
             m_pages->setCurrentIndex(0);
         setStatusText(QString::fromUtf8("Ingrese la cédula del paciente"));
@@ -475,6 +480,7 @@ void MainWindow::startWristExam()
     m_examExercises = {1, 2};      // sin fuerza
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
+    m_sessionCsvFiles.clear();
 
     updateExamUI();
     if (m_pages)
@@ -489,6 +495,7 @@ void MainWindow::startElbowExam()
     m_examExercises = {1, 3};
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
+    m_sessionCsvFiles.clear();
 
     updateExamUI();
     if (m_pages)
@@ -503,6 +510,7 @@ void MainWindow::startFullExam()
     m_examExercises = {1, 2, 3};
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
+    m_sessionCsvFiles.clear();
 
     updateExamUI();
     if (m_pages)
@@ -573,7 +581,8 @@ void MainWindow::handleExamNext()
 
     bool isLast = (m_currentExerciseIdx == m_examExercises.size() - 1);
     if (isLast) {
-        // Fin de examen: volver al menú
+        // Fin del examen: construir Lecturas.xlsx con TODOS los CSV de la sesión
+        runExcelBuilderForCurrentSession();
         showMenuPage();
         return;
     }
@@ -668,8 +677,10 @@ void MainWindow::stopAcquisition(bool fromTimeout)
 
     qDebug() << "Fin adquisición. Muestras:" << m_timeSamples.size();
 
-    // Guardar el ejercicio actual a CSV
-    saveCurrentExerciseToCsv();
+    // Guardar el ejercicio actual a CSV y acumular ruta para la sesión
+    QString csvPath = saveCurrentExerciseToCsv();
+    if (!csvPath.isEmpty())
+        m_sessionCsvFiles.append(csvPath);
 }
 
 void MainWindow::onSerialReadyRead()
@@ -712,18 +723,16 @@ void MainWindow::onAcquisitionTimeout()
 }
 
 // ---------------------------------------------------------------------------
-//                  GUARDADO A CSV POR EJERCICIO
+//                  GUARDADO A CSV POR EJERCICIO (sin popup)
 // ---------------------------------------------------------------------------
 
-void MainWindow::saveCurrentExerciseToCsv()
+QString MainWindow::saveCurrentExerciseToCsv()
 {
-    // 1) Validar que tengamos datos
     if (m_timeSamples.isEmpty() || m_valueSamples.isEmpty())
-        return;
+        return QString();
     if (m_timeSamples.size() != m_valueSamples.size())
-        return;
+        return QString();
 
-    // 2) Nombre del examen (para el archivo)
     QString examName;
     switch (m_currentExam) {
     case ExamWrist: examName = QString::fromUtf8("Muñeca"); break;
@@ -732,12 +741,10 @@ void MainWindow::saveCurrentExerciseToCsv()
     default:        examName = QString::fromUtf8("Examen"); break;
     }
 
-    // 3) Número de ejercicio actual
     int exNum = 0;
     if (m_currentExerciseIdx >= 0 && m_currentExerciseIdx < m_examExercises.size())
         exNum = m_examExercises[m_currentExerciseIdx];
 
-    // 4) Nombre de la columna ROM (igual que en el Python)
     QString colName;
     switch (exNum) {
     case 1:
@@ -754,7 +761,6 @@ void MainWindow::saveCurrentExerciseToCsv()
         break;
     }
 
-    // 5) Carpeta base: similar al Python -> PacienteData/<cedula>/
     QString basePath = QCoreApplication::applicationDirPath()
                        + "/PacienteData/"
                        + (m_patientId.isEmpty() ? "sin_id" : m_patientId);
@@ -766,11 +772,10 @@ void MainWindow::saveCurrentExerciseToCsv()
                                  tr("Error al guardar"),
                                  tr("No se pudo crear la carpeta para el paciente:\n%1")
                                      .arg(basePath));
-            return;
+            return QString();
         }
     }
 
-    // 6) Nombre del archivo: fecha_hora + tipo de examen + EjX (una sesión por archivo)
     QString ts = QDateTime::currentDateTime().toString("yyyy-MM-dd_HH-mm-ss");
     QString fileName = QString("%1_%2_Ej%3.csv")
                            .arg(ts,
@@ -778,7 +783,6 @@ void MainWindow::saveCurrentExerciseToCsv()
                            .arg(exNum);
     QString filePath = baseDir.filePath(fileName);
 
-    // 7) Escribir CSV con columnas: timestamp_s + columna ROM correspondiente
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         qWarning() << "No se pudo abrir archivo CSV para escribir:" << filePath
@@ -788,15 +792,18 @@ void MainWindow::saveCurrentExerciseToCsv()
                              tr("No se pudo crear el archivo:\n%1\n\n%2")
                                  .arg(filePath,
                                       file.errorString()));
-        return;
+        return QString();
     }
+
+    // BOM UTF-8 para Excel
+    QByteArray bom("\xEF\xBB\xBF");
+    file.write(bom);
 
     QTextStream out(&file);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
     out.setEncoding(QStringConverter::Utf8);
 #endif
 
-    // Cabecera igual que el DataFrame de Python: "timestamp_s", "<ROM ...>"
     out << "timestamp_s," << colName << "\n";
 
     for (int i = 0; i < m_timeSamples.size(); ++i) {
@@ -806,16 +813,72 @@ void MainWindow::saveCurrentExerciseToCsv()
 
     file.close();
 
-    // 8) Feedback al usuario: barra de estado + popup
     qDebug() << "CSV guardado en:" << filePath;
-    setStatusText(QString::fromUtf8("Datos guardados en: ") + filePath);
+    setStatusText(QString::fromUtf8("Datos del ejercicio guardados"));
 
-    QMessageBox::information(this,
-                             tr("Datos guardados"),
-                             tr("Los datos del ejercicio se guardaron en:\n%1")
-                                 .arg(filePath));
+    return filePath;
 }
 
+// ---------------------------------------------------------------------------
+//           LLAMAR AL SCRIPT PYTHON PARA CREAR Lecturas.xlsx
+// ---------------------------------------------------------------------------
+
+void MainWindow::runExcelBuilderForCurrentSession()
+{
+    if (m_sessionCsvFiles.isEmpty()) {
+        qDebug() << "No hay CSV de sesión para construir Excel";
+        return;
+    }
+
+    // Script Python en la misma carpeta que el ejecutable
+    QString scriptPath = QCoreApplication::applicationDirPath()
+                         + "/build_excel_from_csvs.py";
+
+    QFileInfo fi(scriptPath);
+    if (!fi.exists()) {
+        QMessageBox::warning(this,
+                             tr("Script faltante"),
+                             tr("No se encontró el script Python:\n%1\n\n"
+                                "Cópialo en la carpeta del ejecutable.")
+                                 .arg(scriptPath));
+        return;
+    }
+
+    // Nombre del examen (solo para título dentro del Excel)
+    QString examName;
+    switch (m_currentExam) {
+    case ExamWrist: examName = "Muñeca"; break;
+    case ExamElbow: examName = "Codo"; break;
+    case ExamFull:  examName = "Codo_y_Muñeca"; break;
+    default:        examName = "Examen"; break;
+    }
+
+    QString pythonExe = "python";   // si necesitas ruta absoluta, cámbiala aquí
+
+    QStringList args;
+    args << m_patientId << examName;
+    for (const QString &p : m_sessionCsvFiles)
+        args << p;
+
+    qDebug() << "Ejecutando" << pythonExe << scriptPath << args;
+
+    int exitCode = QProcess::execute(pythonExe, QStringList() << scriptPath << args);
+
+    if (exitCode == 0) {
+        setStatusText(QString::fromUtf8("Lecturas.xlsx actualizado correctamente"));
+        QMessageBox::information(this,
+                                 tr("Excel actualizado"),
+                                 tr("Se generó/actualizó el archivo Lecturas.xlsx "
+                                    "para el paciente %1.")
+                                     .arg(m_patientId));
+    } else {
+        QMessageBox::warning(this,
+                             tr("Error al crear Excel"),
+                             tr("El script Python terminó con código %1.\n"
+                                "Revisa la consola o ejecuta el script a mano.")
+                                 .arg(exitCode));
+    }
+}
 
 // ---------------------------------------------------------------------------
 //                 RELOJ Y PANTALLA COMPLETA

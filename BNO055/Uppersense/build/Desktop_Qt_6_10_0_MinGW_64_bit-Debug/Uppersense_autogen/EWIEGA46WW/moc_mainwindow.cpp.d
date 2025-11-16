@@ -1,5 +1,6 @@
 C:/Users/Adrian\ Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/EWIEGA46WW/moc_mainwindow.cpp: C:/Users/Adrian\ Jr/Desktop/VICENT/BNO055/Uppersense/mainwindow.h \
   C:/Users/Adrian\ Jr/Desktop/VICENT/BNO055/Uppersense/build/Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/moc_predefs.h \
+  C:/Qt/6.10.0/mingw_64/include/QtCore/QString \
   C:/Qt/6.10.0/mingw_64/include/QtCore/QVector \
   C:/Qt/6.10.0/mingw_64/include/QtCore/q17memory.h \
   C:/Qt/6.10.0/mingw_64/include/QtCore/q20functional.h \
