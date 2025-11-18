@@ -26,10 +26,10 @@ COLS = [
 ]
 
 EJERCICIOS = [
-    ("Flexión/Extensión", "ROM Flexión/Extensión_°"),
-    ("Desviación Ulnar/Radial", "ROM Desviación Ulnar/Radial_°"),
+    ("Flexión / Extensión", "ROM Flexión/Extensión_°"),
+    ("Desviación cubital/radial", "ROM Desviación Ulnar/Radial_°"),
     ("Pronosupinación", "ROM Pronosupinación_°"),
-    ("Fuerza de Prensión", "Fuerza de Prensión_Kg"),
+    ("Fuerza de prensión", "Fuerza de Prensión_Kg"),
 ]
 
 EMG_MAP = {

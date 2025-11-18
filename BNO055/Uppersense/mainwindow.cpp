@@ -25,7 +25,6 @@
 #include <QSerialPort>
 #include <QSerialPortInfo>
 #include <QElapsedTimer>
-#include <QRegularExpression>
 #include <QFileInfo>
 #include <QDebug>
 
@@ -519,6 +518,22 @@ void MainWindow::startFullExam()
     setStatusText(QString::fromUtf8("Examen completo"));
 }
 
+QString MainWindow::exerciseLabel(int exNum) const
+{
+    switch (exNum) {
+    case 1:
+        return QString::fromUtf8("Flexión / Extensión");
+    case 2:
+        return QString::fromUtf8("Desviación cubital/radial");
+    case 3:
+        return QString::fromUtf8("Pronosupinación");
+    case 4:
+        return QString::fromUtf8("Fuerza de prensión");
+    default:
+        return QString::fromUtf8("Ejercicio");
+    }
+}
+
 void MainWindow::updateExamUI()
 {
     if (!m_examTitleLabel || !m_examStatusLabel || !m_examStartStopButton || !m_examNextButton)
@@ -538,7 +553,7 @@ void MainWindow::updateExamUI()
 
     QString title = examName;
     if (exNum > 0)
-        title += QString::fromUtf8(" — Ejercicio %1").arg(exNum);
+        title += QString::fromUtf8(" — %1").arg(exerciseLabel(exNum));
 
     m_examTitleLabel->setText(title);
     m_examStatusLabel->setText(QString::fromUtf8("Esperando"));
@@ -607,6 +622,8 @@ void MainWindow::startAcquisitionForCurrentExercise(int durationSeconds)
     case 1: cmd = '1'; break; // Flex/Ext
     case 2: cmd = '2'; break; // Ulnar/Radial
     case 3: cmd = '3'; break; // Prono/Sup
+    // si más adelante activas fuerza:
+    // case 4: cmd = '4'; break;
     default:
         QMessageBox::warning(this, tr("Ejercicio no soportado"),
                              tr("El ejercicio %1 no está soportado.").arg(exNum));
@@ -637,7 +654,7 @@ void MainWindow::startAcquisitionForCurrentExercise(int durationSeconds)
     QByteArray out;
     out.append(cmd);
     m_serial->write(out);
-    m_serial->write(" ");  // fijar cero
+    m_serial->write(" ");  // fijar cero (ZERO_OK) al inicio del ejercicio
     m_serial->flush();
 
     m_isAcquiring = true;
@@ -696,24 +713,80 @@ void MainWindow::onSerialReadyRead()
         if (line.isEmpty())
             continue;
 
-        static QRegularExpression re(R"([-+]?\d*\.?\d+)");
-        QRegularExpressionMatch m = re.match(line);
-        if (!m.hasMatch())
+        // Mensajes especiales del firmware integrado
+        if (line.startsWith("ZERO_OK")) {
+            qDebug() << "Arduino: ZERO_OK";
+            // opcional: mensaje al usuario
+            // QMessageBox::information(this, tr("Cero ROM"), tr("Cero fijado correctamente."));
             continue;
+        }
+        if (line.startsWith("ZERO_FAIL")) {
+            qDebug() << "Arduino: ZERO_FAIL";
+            // opcional: QMessageBox::warning(this, tr("Cero ROM"), tr("No se pudo fijar el cero (no estás en modo ROM)."));
+            continue;
+        }
+        if (!line.contains(',')) {
+            // textos como "Modo: ..." o "Esperando cero ROM..."
+            qDebug() << "FW MSG:" << line;
+            continue;
+        }
 
-        double val = m.captured(0).toDouble();
-        double t   = m_elapsed->elapsed() / 1000.0;
+        // Esperamos CSV: timestamp,angle,force,emg_env,threshold,activation
+        const QStringList parts = line.split(',');
+        if (parts.size() < 2) {
+            qDebug() << "Línea CSV demasiado corta:" << line;
+            continue;
+        }
+
+        bool okTs = false;
+        double t = parts[0].toDouble(&okTs);
+        if (!okTs) {
+            qDebug() << "No se pudo parsear timestamp en línea:" << line;
+            continue;
+        }
+
+        // Determinar ejercicio actual
+        int exNum = 0;
+        if (m_currentExerciseIdx >= 0 && m_currentExerciseIdx < m_examExercises.size())
+            exNum = m_examExercises[m_currentExerciseIdx];
+
+        double val = 0.0;
+        bool okVal = false;
+
+        if (exNum == 1 || exNum == 2 || exNum == 3) {
+            // Ejercicios de ROM: columna 1 = ángulo
+            if (parts.size() >= 2)
+                val = parts[1].toDouble(&okVal);
+        } else if (exNum == 4) {
+            // Ejercicio de fuerza: columna 2 = fuerza
+            if (parts.size() >= 3)
+                val = parts[2].toDouble(&okVal);
+        } else {
+            // Por si acaso, usamos columna 1
+            val = parts[1].toDouble(&okVal);
+        }
+
+        if (!okVal) {
+            qDebug() << "Valor principal no numérico en línea:" << line;
+            continue;
+        }
 
         m_timeSamples.append(t);
         m_valueSamples.append(val);
 
-        m_examStatusLabel->setText(
-            QString::fromUtf8("t = %1 s   ·   ángulo = %2°")
-                .arg(QString::number(t, 'f', 2))
-                .arg(QString::number(val, 'f', 2))
-            );
+        QString label;
+        if (exNum == 4)
+            label = QString::fromUtf8("t = %1 s   ·   fuerza = %2 kg")
+                        .arg(QString::number(t, 'f', 2))
+                        .arg(QString::number(val, 'f', 3));
+        else
+            label = QString::fromUtf8("t = %1 s   ·   ángulo = %2°")
+                        .arg(QString::number(t, 'f', 2))
+                        .arg(QString::number(val, 'f', 2));
 
-        qDebug() << "LINE:" << line << "->" << val;
+        m_examStatusLabel->setText(label);
+
+        qDebug() << "LINE:" << line << "-> t:" << t << " val:" << val << " ex:" << exNum;
     }
 }
 
@@ -830,7 +903,6 @@ void MainWindow::runExcelBuilderForCurrentSession()
         return;
     }
 
-    // Script Python en la misma carpeta que el ejecutable
     QString scriptPath = QCoreApplication::applicationDirPath()
                          + "/build_excel_from_csvs.py";
 
@@ -844,7 +916,6 @@ void MainWindow::runExcelBuilderForCurrentSession()
         return;
     }
 
-    // Nombre del examen (solo para título dentro del Excel)
     QString examName;
     switch (m_currentExam) {
     case ExamWrist: examName = "Muñeca"; break;
@@ -853,7 +924,7 @@ void MainWindow::runExcelBuilderForCurrentSession()
     default:        examName = "Examen"; break;
     }
 
-    QString pythonExe = "python";   // si necesitas ruta absoluta, cámbiala aquí
+    QString pythonExe = "python";   // ajusta ruta si hace falta
 
     QStringList args;
     args << m_patientId << examName;
@@ -871,6 +942,19 @@ void MainWindow::runExcelBuilderForCurrentSession()
                                  tr("Se generó/actualizó el archivo Lecturas.xlsx "
                                     "para el paciente %1.")
                                      .arg(m_patientId));
+
+        // ======== BORRAR LOS CSV TEMPORALES =========
+        for (const QString &path : m_sessionCsvFiles) {
+            QFile f(path);
+            if (f.exists()) {
+                if (!f.remove()) {
+                    qWarning() << "No se pudo borrar CSV temporal:" << path
+                               << f.errorString();
+                }
+            }
+        }
+        m_sessionCsvFiles.clear();
+        // ============================================
     } else {
         QMessageBox::warning(this,
                              tr("Error al crear Excel"),

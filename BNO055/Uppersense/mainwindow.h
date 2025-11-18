@@ -60,6 +60,9 @@ private:
     QWidget* createExamPage();
     void updateExamUI();  // actualiza textos/botones según ejercicio actual
 
+    QString exerciseLabel(int exNum) const;
+
+
     void startAcquisitionForCurrentExercise(int durationSeconds);
     void stopAcquisition(bool fromTimeout);
 
