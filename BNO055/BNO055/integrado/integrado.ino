@@ -46,8 +46,9 @@ Quat qRel_latest = {1,0,0,0};
 
 // ---------------------- HX711 (fuerza) ----------------------
 HX711 balanza;
-const int PIN_DOUT = 3;   // DT del HX711
-const int PIN_SCK  = 2;   // SCK del HX711
+// CAMBIO DE PINES:
+const int PIN_DOUT = 4;   // DT del HX711
+const int PIN_SCK  = 2;  // SCK del HX711
 
 float factorCal = -2121.82f;   // tu factor calibrado (para gramos)
 
@@ -168,12 +169,10 @@ void initForceFilter() {
 
 // Lee una muestra de fuerza en kg con filtro de media móvil
 float readForceKg() {
-  if (!balanza.is_ready()) {
-    return NAN;
-  }
-  long raw = balanza.read();  // 24 bits crudo
-  // La librería de HX711 típica usa get_offset() internamente si fijas la escala,
-  // pero aquí usamos factorCal manualmente:
+  // OJO: quitamos el if (!is_ready()) return NAN;
+  // read() ya espera a que haya nueva muestra
+  long raw = balanza.read();  // bloquea hasta que el HX711 esté listo
+
   float gramos = (raw - balanza.get_offset()) / factorCal;
   float kg = gramos / 1000.0f;
 
@@ -185,6 +184,7 @@ float readForceKg() {
 
   return forceSum / FORCE_FILT_N;
 }
+
 
 // ---------------------- Serial control ----------------------
 void showMenu() {
@@ -244,7 +244,6 @@ void handleSerial() {
           qRelZero  = qRel_latest;
           qConjZero = qConj(qRelZero);
           haveZero  = true;
-          // Para Qt: línea limpia
           Serial.println("ZERO_OK");
         } else {
           Serial.println("ZERO_FAIL");
@@ -319,7 +318,7 @@ void loop() {
   updateEMG(emgEnv, emgThr, emgAct);
 
   // 3) Fuerza (si está conectada)
-  float fuerzaKg = readForceKg();  // será NaN si no está lista
+  float fuerzaKg = -readForceKg();  // será NaN si no está lista
 
   // 4) Control de periodo de muestreo
   unsigned long now = millis();
@@ -377,7 +376,6 @@ void loop() {
     //   - No usamos ángulo → NaN
     //   - fuerzaKg ya calculada
     angle_deg = NAN;
-    // (si fuerzaKg es NaN porque HX711 no estaba listo, simplemente se verá NaN)
   }
 
   // 6) Imprimir CSV:

@@ -21,12 +21,15 @@
 #include <QFile>
 #include <QTextStream>
 #include <QProcess>
+#include <QFileInfo>
+#include <QRegularExpression>
+#include <QDebug>
 
 #include <QSerialPort>
 #include <QSerialPortInfo>
 #include <QElapsedTimer>
-#include <QFileInfo>
-#include <QDebug>
+
+#include <limits>
 
 // Paleta visual
 static const char *CLR_PRIMARY        = "#1565c0";
@@ -63,7 +66,6 @@ MainWindow::MainWindow(QWidget *parent)
     m_patientId(),
     m_serial(nullptr),
     m_acqTimer(nullptr),
-    m_acqDurationMs(0),
     m_elapsed(nullptr)
 {
     setWindowTitle(QString::fromUtf8("UpperSense — Panel de Control"));
@@ -276,7 +278,8 @@ void MainWindow::handleIdContinue()
     setStatusText(QString::fromUtf8("Paciente: ") + m_patientId);
 
     m_sessionCsvFiles.clear();
-    m_pages->setCurrentIndex(1); // menú de exámenes
+    if (m_pages)
+        m_pages->setCurrentIndex(1); // menú de exámenes
 }
 
 // ------------------ Página de menú ------------------
@@ -324,7 +327,7 @@ QWidget* MainWindow::createMenuPage()
 
     v->addWidget(btnRow, 0, Qt::AlignCenter);
 
-    // Botón Salir debajo
+    // Botón Salir (volver a cédula)
     QWidget *bottomBar = new QWidget(page);
     QHBoxLayout *bottomLayout = new QHBoxLayout(bottomBar);
     bottomLayout->setContentsMargins(0, 20, 0, 0);
@@ -476,7 +479,7 @@ void MainWindow::showMenuPage()
 void MainWindow::startWristExam()
 {
     m_currentExam = ExamWrist;
-    m_examExercises = {1, 2};      // sin fuerza
+    m_examExercises = {1, 2, 4};      // Flex/Ext, Ulnar/Radial, Fuerza
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
     m_sessionCsvFiles.clear();
@@ -491,7 +494,7 @@ void MainWindow::startWristExam()
 void MainWindow::startElbowExam()
 {
     m_currentExam = ExamElbow;
-    m_examExercises = {1, 3};
+    m_examExercises = {1, 3, 4};      // Flex/Ext, Prono/Sup, Fuerza
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
     m_sessionCsvFiles.clear();
@@ -506,7 +509,7 @@ void MainWindow::startElbowExam()
 void MainWindow::startFullExam()
 {
     m_currentExam = ExamFull;
-    m_examExercises = {1, 2, 3};
+    m_examExercises = {1, 2, 3, 4};   // Flex/Ext, Ulnar/Radial, Prono/Sup, Fuerza
     m_currentExerciseIdx = 0;
     m_isAcquiring = false;
     m_sessionCsvFiles.clear();
@@ -622,8 +625,7 @@ void MainWindow::startAcquisitionForCurrentExercise(int durationSeconds)
     case 1: cmd = '1'; break; // Flex/Ext
     case 2: cmd = '2'; break; // Ulnar/Radial
     case 3: cmd = '3'; break; // Prono/Sup
-    // si más adelante activas fuerza:
-    // case 4: cmd = '4'; break;
+    case 4: cmd = '4'; break; // Fuerza de prensión
     default:
         QMessageBox::warning(this, tr("Ejercicio no soportado"),
                              tr("El ejercicio %1 no está soportado.").arg(exNum));
@@ -646,15 +648,16 @@ void MainWindow::startAcquisitionForCurrentExercise(int durationSeconds)
     m_serialBuffer.clear();
     m_timeSamples.clear();
     m_valueSamples.clear();
+    m_emgSamples.clear();
 
-    m_elapsed->restart();
+    m_elapsed->restart();                      // timestamp = 0 al iniciar
     m_acqDurationMs = durationSeconds * 1000;
     m_acqTimer->start(m_acqDurationMs);
 
     QByteArray out;
     out.append(cmd);
     m_serial->write(out);
-    m_serial->write(" ");  // fijar cero (ZERO_OK) al inicio del ejercicio
+    m_serial->write(" ");  // fijar cero ROM en modos 1–3 (el firmware lo ignora en 4)
     m_serial->flush();
 
     m_isAcquiring = true;
@@ -713,82 +716,75 @@ void MainWindow::onSerialReadyRead()
         if (line.isEmpty())
             continue;
 
-        // Mensajes especiales del firmware integrado
-        if (line.startsWith("ZERO_OK")) {
-            qDebug() << "Arduino: ZERO_OK";
-            // opcional: mensaje al usuario
-            // QMessageBox::information(this, tr("Cero ROM"), tr("Cero fijado correctamente."));
-            continue;
-        }
-        if (line.startsWith("ZERO_FAIL")) {
-            qDebug() << "Arduino: ZERO_FAIL";
-            // opcional: QMessageBox::warning(this, tr("Cero ROM"), tr("No se pudo fijar el cero (no estás en modo ROM)."));
-            continue;
-        }
+        // 1) Ignorar líneas tipo "ZERO_OK" o mensajes de texto
         if (!line.contains(',')) {
-            // textos como "Modo: ..." o "Esperando cero ROM..."
-            qDebug() << "FW MSG:" << line;
+            // Puedes hacer aquí un qDebug() si quieres verlos
             continue;
         }
 
-        // Esperamos CSV: timestamp,angle,force,emg_env,threshold,activation
-        const QStringList parts = line.split(',');
-        if (parts.size() < 2) {
-            qDebug() << "Línea CSV demasiado corta:" << line;
+        // 2) Partir por comas
+        QStringList parts = line.split(',', Qt::KeepEmptyParts);
+        if (parts.size() < 4)
             continue;
-        }
 
-        bool okTs = false;
-        double t = parts[0].toDouble(&okTs);
-        if (!okTs) {
-            qDebug() << "No se pudo parsear timestamp en línea:" << line;
-            continue;
-        }
+        auto parseField = [](const QString &s) -> double {
+            QString tok = s.trimmed();
+            if (tok.compare("NaN", Qt::CaseInsensitive) == 0)
+                return std::numeric_limits<double>::quiet_NaN();
+            bool ok = false;
+            double v = tok.toDouble(&ok);
+            return ok ? v : std::numeric_limits<double>::quiet_NaN();
+        };
 
-        // Determinar ejercicio actual
+        double t_arduino = parseField(parts[0]);
+        double angle_deg = parseField(parts[1]);
+        double force_kg  = (parts.size() > 2) ? parseField(parts[2]) : std::numeric_limits<double>::quiet_NaN();
+        double emg_env   = (parts.size() > 3) ? parseField(parts[3]) : std::numeric_limits<double>::quiet_NaN();
+        // threshold y activation están en parts[4], parts[5] si los quieres luego
+
+        // 3) Saber qué ejercicio es
         int exNum = 0;
         if (m_currentExerciseIdx >= 0 && m_currentExerciseIdx < m_examExercises.size())
             exNum = m_examExercises[m_currentExerciseIdx];
 
-        double val = 0.0;
-        bool okVal = false;
-
-        if (exNum == 1 || exNum == 2 || exNum == 3) {
-            // Ejercicios de ROM: columna 1 = ángulo
-            if (parts.size() >= 2)
-                val = parts[1].toDouble(&okVal);
-        } else if (exNum == 4) {
-            // Ejercicio de fuerza: columna 2 = fuerza
-            if (parts.size() >= 3)
-                val = parts[2].toDouble(&okVal);
+        double romOrForce = std::numeric_limits<double>::quiet_NaN();
+        if (exNum == 4) {
+            romOrForce = force_kg;     // Fuerza de prensión
         } else {
-            // Por si acaso, usamos columna 1
-            val = parts[1].toDouble(&okVal);
+            romOrForce = angle_deg;    // ROM
         }
 
-        if (!okVal) {
-            qDebug() << "Valor principal no numérico en línea:" << line;
-            continue;
-        }
+        double emgVal = emg_env;
+
+        // 4) Tiempo local de Qt
+        double t = m_elapsed->elapsed() / 1000.0;
 
         m_timeSamples.append(t);
-        m_valueSamples.append(val);
+        m_valueSamples.append(romOrForce);
+        m_emgSamples.append(emgVal);
 
-        QString label;
+        // 5) Actualizar UI
+        QString valText;
         if (exNum == 4)
-            label = QString::fromUtf8("t = %1 s   ·   fuerza = %2 kg")
-                        .arg(QString::number(t, 'f', 2))
-                        .arg(QString::number(val, 'f', 3));
+            valText = QString::fromUtf8("Fuerza = %1 kg").arg(romOrForce, 0, 'f', 3);
         else
-            label = QString::fromUtf8("t = %1 s   ·   ángulo = %2°")
-                        .arg(QString::number(t, 'f', 2))
-                        .arg(QString::number(val, 'f', 2));
+            valText = QString::fromUtf8("ROM = %1 °").arg(romOrForce, 0, 'f', 2);
 
-        m_examStatusLabel->setText(label);
+        m_examStatusLabel->setText(
+            QString::fromUtf8("t = %1 s   ·   %2   ·   EMG = %3")
+                .arg(QString::number(t, 'f', 2))
+                .arg(valText)
+                .arg(std::isnan(emgVal)
+                         ? QStringLiteral("NaN")
+                         : QString::number(emgVal, 'f', 2))
+            );
 
-        qDebug() << "LINE:" << line << "-> t:" << t << " val:" << val << " ex:" << exNum;
+        qDebug() << "LINE:" << line
+                 << "-> value:" << romOrForce
+                 << "EMG:" << emgVal;
     }
 }
+
 
 void MainWindow::onAcquisitionTimeout()
 {
@@ -796,7 +792,7 @@ void MainWindow::onAcquisitionTimeout()
 }
 
 // ---------------------------------------------------------------------------
-//                  GUARDADO A CSV POR EJERCICIO (sin popup)
+//                  GUARDADO A CSV POR EJERCICIO
 // ---------------------------------------------------------------------------
 
 QString MainWindow::saveCurrentExerciseToCsv()
@@ -805,6 +801,9 @@ QString MainWindow::saveCurrentExerciseToCsv()
         return QString();
     if (m_timeSamples.size() != m_valueSamples.size())
         return QString();
+
+    // EMG puede o no tener mismo tamaño, pero lo intentamos
+    bool hasEmg = (m_emgSamples.size() == m_timeSamples.size());
 
     QString examName;
     switch (m_currentExam) {
@@ -819,18 +818,28 @@ QString MainWindow::saveCurrentExerciseToCsv()
         exNum = m_examExercises[m_currentExerciseIdx];
 
     QString colName;
+    QString emgColName;
+
     switch (exNum) {
     case 1:
-        colName = QString::fromUtf8("ROM Flexión/Extensión_°");
+        colName    = QString::fromUtf8("ROM Flexión/Extensión_°");
+        emgColName = QString::fromUtf8("EMG(F/E)_mv");
         break;
     case 2:
-        colName = QString::fromUtf8("ROM Desviación Ulnar/Radial_°");
+        colName    = QString::fromUtf8("ROM Desviación Ulnar/Radial_°");
+        emgColName = QString::fromUtf8("EMG(D)_mv");
         break;
     case 3:
-        colName = QString::fromUtf8("ROM Pronosupinación_°");
+        colName    = QString::fromUtf8("ROM Pronosupinación_°");
+        emgColName = QString::fromUtf8("EMG(PS)_mv");
+        break;
+    case 4:
+        colName    = QString::fromUtf8("Fuerza de Prensión_Kg");
+        emgColName = QString::fromUtf8("EMG(FP)_mv");
         break;
     default:
-        colName = QString::fromUtf8("Ángulo_°");
+        colName    = QString::fromUtf8("Valor");
+        emgColName = QString::fromUtf8("EMG");
         break;
     }
 
@@ -877,12 +886,27 @@ QString MainWindow::saveCurrentExerciseToCsv()
     out.setEncoding(QStringConverter::Utf8);
 #endif
 
-    out << "timestamp_s," << colName << "\n";
+    // Cabecera: timestamp, valor principal, EMG
+    out << "timestamp_s," << colName << "," << emgColName << "\n";
 
     for (int i = 0; i < m_timeSamples.size(); ++i) {
-        out << QString::number(m_timeSamples[i], 'f', 4) << ","
-            << QString::number(m_valueSamples[i], 'f', 4) << "\n";
+        double t   = m_timeSamples[i];
+        double val = m_valueSamples[i];  // ROM ° o fuerza Kg, ya listo
+        double emg = hasEmg ? m_emgSamples[i]
+                            : std::numeric_limits<double>::quiet_NaN();
+
+        out << QString::number(t,   'f', 4) << ","
+            << QString::number(val, 'f', 4) << ",";
+
+        if (std::isnan(emg)) {
+            out << "";
+        } else {
+            out << QString::number(emg, 'f', 4);
+        }
+
+        out << "\n";
     }
+
 
     file.close();
 

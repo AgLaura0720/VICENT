@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(Uppersense VERSION 0.1 LANGUAGES CXX)
 
+# UIC/MOC/RCC automáticos
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -9,48 +10,44 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# ================== Qt ==================
-# Pedimos Widgets + SerialPort solo una vez, limpio
+# ==== Encontrar Qt (5 o 6) ====
+# Necesitamos Widgets y SerialPort
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets SerialPort)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets SerialPort)
 
+# ==== Lista de fuentes ====
 set(PROJECT_SOURCES
     main.cpp
     mainwindow.cpp
     mainwindow.h
-    mainwindow.ui
-    headerwidget.h
     headerwidget.cpp
+    headerwidget.h
+    mainwindow.ui
     resources.qrc
 )
 
-# ================== Ejecutable ==================
+# ==== Crear ejecutable según versión de Qt ====
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(Uppersense
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
     )
 else()
-    if(ANDROID)
-        add_library(Uppersense SHARED
-            ${PROJECT_SOURCES}
-        )
-    else()
-        add_executable(Uppersense
-            ${PROJECT_SOURCES}
-        )
-    endif()
+    add_executable(Uppersense
+        ${PROJECT_SOURCES}
+    )
 endif()
 
-# ================== Enlazado ==================
-target_link_libraries(Uppersense PRIVATE
-    Qt${QT_VERSION_MAJOR}::Widgets
-    Qt${QT_VERSION_MAJOR}::SerialPort
+# ==== Enlazar librerías de Qt ====
+target_link_libraries(Uppersense
+    PRIVATE
+        Qt${QT_VERSION_MAJOR}::Widgets
+        Qt${QT_VERSION_MAJOR}::SerialPort
 )
 
-# ================== Propiedades de bundle ==================
+# ==== Propiedades de bundle (Windows/macOS) ====
 if(${QT_VERSION} VERSION_LESS 6.1.0)
-  set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.Uppersense)
+    set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.Uppersense)
 endif()
 
 set_target_properties(Uppersense PROPERTIES
@@ -61,7 +58,7 @@ set_target_properties(Uppersense PROPERTIES
     WIN32_EXECUTABLE TRUE
 )
 
-# ================== Instalación ==================
+# ==== Instalación (opcional, no molesta) ====
 include(GNUInstallDirs)
 install(TARGETS Uppersense
     BUNDLE DESTINATION .
@@ -69,7 +66,6 @@ install(TARGETS Uppersense
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-# ================== Finalizar (Qt6) ==================
 if(QT_VERSION_MAJOR EQUAL 6)
     qt_finalize_executable(Uppersense)
 endif()

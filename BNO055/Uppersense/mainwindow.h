@@ -2,7 +2,7 @@
 
 #include <QMainWindow>
 #include <QVector>
-#include <QString>
+#include <QStringList>
 
 class HeaderWidget;
 class QLabel;
@@ -33,17 +33,17 @@ private slots:
     void handleExamStartStop();   // Iniciar / Detener
     void handleExamNext();        // Siguiente / Finalizar
 
+    // Página de cédula
+    void handleIdContinue();
+
+    // Serial / adquisición
+    void onSerialReadyRead();
+    void onAcquisitionTimeout();
+
     // Otros
     void updateClock();
     void toggleFullscreen();
     void exitFullscreen();
-
-    // Página de cédula
-    void handleIdContinue();
-
-    // Serial / captura
-    void onSerialReadyRead();
-    void onAcquisitionTimeout();
 
 private:
     enum ExamType {
@@ -53,22 +53,20 @@ private:
         ExamFull
     };
 
+    // Helpers generales
     void setStatusText(const QString &text);
     QWidget* createCentralCard();
     QWidget* createIdPage();
     QWidget* createMenuPage();
     QWidget* createExamPage();
-    void updateExamUI();  // actualiza textos/botones según ejercicio actual
-
+    void updateExamUI();
     QString exerciseLabel(int exNum) const;
 
-
+    // Adquisición
     void startAcquisitionForCurrentExercise(int durationSeconds);
     void stopAcquisition(bool fromTimeout);
-
-    // Guardado
-    QString saveCurrentExerciseToCsv();           // guarda UN ejercicio -> CSV, devuelve ruta
-    void runExcelBuilderForCurrentSession();      // llama al script Python para hacer Lecturas.xlsx
+    QString saveCurrentExerciseToCsv();
+    void runExcelBuilderForCurrentSession();
 
     // ----- UI general -----
     HeaderWidget   *m_header;
@@ -80,30 +78,30 @@ private:
 
     // ----- Estado del examen -----
     ExamType       m_currentExam;
-    QVector<int>   m_examExercises;      // p.ej. {1,2} ó {1,3}
-    int            m_currentExerciseIdx; // índice sobre m_examExercises
+    QVector<int>   m_examExercises;      // p.ej. {1,2,4} ó {1,3,4}
+    int            m_currentExerciseIdx; // índice
     bool           m_isAcquiring;        // si se está tomando datos
 
     // ----- Widgets de la página de examen -----
-    QLabel        *m_examTitleLabel;      // "Examen de muñeca — Ejercicio 1"
-    QLabel        *m_examStatusLabel;     // "Esperando", "Realizando...", etc.
-    QPushButton   *m_examStartStopButton; // "Iniciar" / "Detener"
-    QPushButton   *m_examNextButton;      // "Siguiente" / "Finalizar"
+    QLabel        *m_examTitleLabel;      // título examen + ejercicio
+    QLabel        *m_examStatusLabel;     // texto de estado
+    QPushButton   *m_examStartStopButton; // "Iniciar"/"Detener"
+    QPushButton   *m_examNextButton;      // "Siguiente"/"Finalizar"
 
     // ----- Página de cédula -----
     QLineEdit     *m_idLineEdit;
     QString        m_patientId;
 
-    // ----- Comunicación con Arduino -----
-    QSerialPort   *m_serial;        // puerto serie
-    QTimer        *m_acqTimer;      // duración de la toma
-    qint64         m_acqDurationMs;
-    QElapsedTimer *m_elapsed;       // para timestamps relativos
-    QByteArray     m_serialBuffer;  // buffer de líneas parciales
+    // ----- Serial / buffers -----
+    QSerialPort   *m_serial;
+    QTimer        *m_acqTimer;
+    QElapsedTimer *m_elapsed;
+    int            m_acqDurationMs;      // <<< AÑADIR ESTA LÍNEA
 
-    QVector<double> m_timeSamples;   // timestamps (s)
-    QVector<double> m_valueSamples;  // valores de ángulo
-
-    // CSV generados en ESTA sesión (para construir el Excel al final)
-    QVector<QString> m_sessionCsvFiles;
+    QByteArray      m_serialBuffer;
+    QVector<double> m_timeSamples;   // timestamp_s
+    QVector<double> m_valueSamples;  // ROM o Fuerza
+    QVector<double> m_emgSamples;    // EMG del ejercicio
+    QStringList     m_sessionCsvFiles;
 };
+

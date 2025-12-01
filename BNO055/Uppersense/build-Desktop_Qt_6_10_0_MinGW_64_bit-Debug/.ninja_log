@@ -1,0 +1,45 @@
+# ninja log v7
+32	264	7853115770651577	Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+32	264	7853115770651577	Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+32	264	7853115770651577	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+32	264	7853115770651577	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+1132	1419	7852198461801722	Uppersense_autogen/EWIEGA46WW/qrc_resources.cpp	1c15eb853133691
+1132	1419	7852198461801722	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/EWIEGA46WW/qrc_resources.cpp	1c15eb853133691
+1155	5697	7853107484994871	CMakeFiles/Uppersense.dir/main.cpp.obj	54cd6cb12e519566
+1150	5702	7853107484994871	CMakeFiles/Uppersense.dir/Uppersense_autogen/mocs_compilation.cpp.obj	ac4e48c40b19b175
+1438	5753	7852198462140665	CMakeFiles/Uppersense.dir/headerwidget.cpp.obj	41a6ec4595317868
+1444	6570	7852198462200869	CMakeFiles/Uppersense.dir/Uppersense_autogen/EWIEGA46WW/qrc_resources.cpp.obj	92b670a8eab95388
+266	4330	7853115773038658	CMakeFiles/Uppersense.dir/mainwindow.cpp.obj	bf9d546036579720
+4330	4798	7853115813692825	Uppersense.exe	aff6a89dfe4628ae
+75	1197	7853126621687135	Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+75	1197	7853126621687135	Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+75	1197	7853126621687135	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+75	1197	7853126621687135	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+1205	6391	7853126623200820	CMakeFiles/Uppersense.dir/main.cpp.obj	54cd6cb12e519566
+1198	6445	7853126623132201	CMakeFiles/Uppersense.dir/Uppersense_autogen/mocs_compilation.cpp.obj	ac4e48c40b19b175
+1210	8277	7853126623249535	CMakeFiles/Uppersense.dir/mainwindow.cpp.obj	bf9d546036579720
+8277	9298	7853126693832562	Uppersense.exe	aff6a89dfe4628ae
+44	689	7853127637242216	Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+44	689	7853127637242216	Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+44	689	7853127637242216	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+44	689	7853127637242216	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+694	2936	7853127638079212	CMakeFiles/Uppersense.dir/main.cpp.obj	54cd6cb12e519566
+690	3157	7853127638079212	CMakeFiles/Uppersense.dir/Uppersense_autogen/mocs_compilation.cpp.obj	ac4e48c40b19b175
+698	4131	7853127638125554	CMakeFiles/Uppersense.dir/mainwindow.cpp.obj	bf9d546036579720
+4131	4517	7853127672453843	Uppersense.exe	aff6a89dfe4628ae
+228	769	7857876035653235	Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+228	769	7857876035653235	Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+228	769	7857876035653235	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+228	769	7857876035653235	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+86	406	7857877292929885	Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+86	406	7857877292929885	Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+86	406	7857877292929885	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+86	406	7857877292929885	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+408	6382	7857877296141197	CMakeFiles/Uppersense.dir/mainwindow.cpp.obj	bf9d546036579720
+6383	7835	7857877355901623	Uppersense.exe	aff6a89dfe4628ae
+76	268	7857905070717717	Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+76	268	7857905070717717	Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+76	268	7857905070717717	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/timestamp	33c1214e1f9fd5ed
+76	268	7857905070717717	C:/Users/14-bb0002/Desktop/PROYECTO FINAL BIOMEDICA/VICENT/BNO055/Uppersense/build-Desktop_Qt_6_10_0_MinGW_64_bit-Debug/Uppersense_autogen/mocs_compilation.cpp	33c1214e1f9fd5ed
+268	3429	7857905072635504	CMakeFiles/Uppersense.dir/mainwindow.cpp.obj	bf9d546036579720
+3429	3836	7857905104255876	Uppersense.exe	aff6a89dfe4628ae
